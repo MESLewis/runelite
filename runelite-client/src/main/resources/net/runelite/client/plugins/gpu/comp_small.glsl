@@ -36,21 +36,33 @@
 layout(local_size_x = LOCAL_SIZE_X) in;
 
 uniform int u_ExecutionType;
-uniform int u_SortHeight = 2048;
+uniform int u_SortHeight = LOCAL_SIZE_X * 2;
+
+shared int totalNum[12]; // number of faces with a given priority
+shared int totalDistance[12]; // sum of distances to faces of a given priority
+
+shared int totalMappedNum[18]; // number of faces with a given adjusted priority
+
+shared int min10; // minimum distance to a face of priority 10
+shared int dfs[LOCAL_SIZE_X]; // packed face id and distance
+shared int priority[LOCAL_SIZE_X]; //priority
+
+#include priority_render.glsl
 
 //Associate a face and its calculated distance
 struct IndexDistancePair {
     uint faceIndex; //read index
-    float distance;
+    int distance;
+    uint priority;
 };
 
 //Workgroup memory.
-shared IndexDistancePair local_value[LOCAL_SIZE_X * 2];
+shared IndexDistancePair local_value[LOCAL_SIZE_X];
 
 //Write to ivec4 vout[]
 
 modelinfo getMInfo() {
-    return ol[gl_WorkGroupID.y];
+    return ol[gl_WorkGroupID.x];
 }
 
 //Get vertex index from a model face index
@@ -87,31 +99,33 @@ ivec4 vertexIndexToPosition(uint vertexIndex) {
 }
 
 int getAverageDistance(uint faceIndex) {
-    uint vertexIndex = getVertexReadIndex(faceIndex);
-    ivec4 thisA = vertexIndexToPosition(vertexIndex);
-    ivec4 thisB = vertexIndexToPosition(vertexIndex+1);
-    ivec4 thisC = vertexIndexToPosition(vertexIndex+2);
-    int radius = (getMInfo().flags & 0x7fffffff) >> 12;
-    int thisPriority = (thisA.w >> 16) & 0xff;
-    return radius + face_distance(
-        thisA,
-        thisB,
-        thisC,
-        cameraYaw,
-        cameraPitch
-    );
+//    uint vertexIndex = getVertexReadIndex(faceIndex);
+//    ivec4 thisA = vertexIndexToPosition(vertexIndex);
+//    ivec4 thisB = vertexIndexToPosition(vertexIndex+1);
+//    ivec4 thisC = vertexIndexToPosition(vertexIndex+2);
+//    int radius = (getMInfo().flags & 0x7fffffff) >> 12;
+//    int thisPriority = (thisA.w >> 16) & 0xff;
+//    return radius + face_distance(
+//        thisA,
+//        thisB,
+//        thisC,
+//        cameraYaw,
+//        cameraPitch
+//    );
+    return dfs[faceIndex];
 }
 
 void writeVertexIndexGroup(uint writeFaceIndex, uint readFaceIndex) {
     modelinfo minfo = getMInfo();
-    if(readFaceIndex >= minfo.size) {
-        return;
-    }
+//    if(readFaceIndex > minfo.size || writeFaceIndex > minfo.size) {
+//        return;
+//    }
 
     ivec4 pos = ivec4(minfo.x, minfo.y, minfo.z, 0);
     uint writeIndex = getVertexWriteIndex(writeFaceIndex);
     uint readIndex = getVertexReadIndex(readFaceIndex);
     uint uvReadIndex = getUVReadIndex(readFaceIndex);
+
     ivec4 thisA, thisB, thisC;
     if (minfo.flags < 0) {
         thisA = vb[readIndex];
@@ -132,6 +146,11 @@ void writeVertexIndexGroup(uint writeFaceIndex, uint readFaceIndex) {
     vout[writeIndex  ] = thisrvA + pos;
     vout[writeIndex+1] = thisrvB + pos;
     vout[writeIndex+2] = thisrvC + pos;
+    //TODO DEBUG
+//    IndexDistancePair d = local_value[gl_LocalInvocationID.x];
+//    vout[writeIndex  ] = ivec4(readFaceIndex, writeFaceIndex, readIndex, writeIndex);
+//    vout[writeIndex+1] = ivec4(1,1,1,1);
+//    vout[writeIndex+2] = ivec4(2,2,2,2);
 
     if (getMInfo().uvOffset < 0) {
         uvout[writeIndex    ] = vec4(0, 0, 0, 0);
@@ -150,10 +169,25 @@ void writeVertexIndexGroup(uint writeFaceIndex, uint readFaceIndex) {
 
 //Compare and swap elements in workgroup-local memory
 void local_compare_and_swap(uvec2 idx) {
-    if(local_value[idx.x].distance < local_value[idx.y].distance) {
+    if(idx.x >= getMInfo().size || idx.y >= getMInfo().size) {
+        return;
+    }
+    int d1 = local_value[idx.x].distance;
+    int id1 = d1 >> 16;
+    int distance1 = d1 & 0xffff;
+    uint priority1 = local_value[idx.x].priority;
+    int d2 = local_value[idx.y].distance;
+    int id2 = d2 >> 16;
+    int distance2 = d2 & 0xffff;
+    uint priority2 = local_value[idx.y].priority;
+//    if(local_value[idx.x].distance < local_value[idx.y].distance) {
+    if(
+//    (priority1 >= priority2) &&
+    ((distance2 > distance1)
+    || (distance2 == distance1 && id2 < id1))) {
         IndexDistancePair tmp = local_value[idx.x];
         local_value[idx.x] = local_value[idx.y];
-        local_value[idx.x] = tmp;
+        local_value[idx.y] = tmp;
     }
 }
 
@@ -163,8 +197,8 @@ void local_flip(uint h) {
 
     uint half_h = h >> 1;
     ivec2 indices =
-    ivec2(h*((2*t)/h)) +
-    ivec2(t%half_h, h-1-(t%half_h));
+    ivec2( h * ( ( 2 * t ) / h ) ) +
+    ivec2( t % half_h, h - 1 - ( t % half_h ) );
 
     local_compare_and_swap(indices);
 }
@@ -175,8 +209,8 @@ void local_disperse(in uint h){
         barrier();
         uint half_h = h >> 1;
         ivec2 indices =
-        ivec2(h*((2*t)/h))+
-        ivec2(t%half_h, half_h+(t%half_h));
+        ivec2( h * ( ( 2 * t ) / h ) ) +
+        ivec2( t % half_h, half_h + ( t % half_h ) );
 
         local_compare_and_swap(indices);
     }
@@ -192,17 +226,31 @@ void local_bms(uint h) {
 
 void local_main(uint executionType, uint height) {
     uint t = gl_LocalInvocationID.x;
-    uint offset = gl_WorkGroupSize.x * 2 * gl_WorkGroupID.x;
+//    uint offset = gl_WorkGroupSize.x * 2 * gl_WorkGroupID.x;
+    uint offset = 0;
 
     uint faceIndex1 = offset+t*2;
     uint faceIndex2 = offset+t*2+1;
-    float distance1 = getAverageDistance(faceIndex1);
-    float distance2 = getAverageDistance(faceIndex2);
+    int distance1 = getAverageDistance(faceIndex1);
+    int distance2 = getAverageDistance(faceIndex2);
+    IndexDistancePair idp1;
+    IndexDistancePair idp2;
+
+    if(faceIndex1 <= getMInfo().size) {
+        idp1 = IndexDistancePair(faceIndex1, distance1, priority[faceIndex1]);
+    } else {
+        idp1 = IndexDistancePair(DUMMY_INDEX, DUMMY_DISTANCE, 0);
+    }
+    if(faceIndex2 <= getMInfo().size) {
+        idp2 = IndexDistancePair(faceIndex2, distance2, priority[faceIndex2]);
+    } else {
+        idp2 = IndexDistancePair(DUMMY_INDEX, DUMMY_DISTANCE, 0);
+    }
 
     //Each local worker must save two elements to local memory,
     //as there are twice as many elements as workers.
-    local_value[t*2] = IndexDistancePair(faceIndex1, distance1);
-    local_value[t*2+1] = IndexDistancePair(faceIndex2, distance2);
+    local_value[t*2] = idp1;
+    local_value[t*2+1] = idp2;
 
 //    if (executionType == LOCAL_BMS) {
         local_bms(height);
@@ -210,72 +258,85 @@ void local_main(uint executionType, uint height) {
 //    if (executionType == LOCAL_DISPERSE) {
 //        local_disperse(height);
 //    }
+//    uint one = t;
+//    uint two = t + LOCAL_SIZE_X / 2;
+//    IndexDistancePair tmp = local_value[one];
+//    local_value[one] = local_value[two];
+//    local_value[two] = tmp;
 
+
+    memoryBarrierShared();
     barrier();
 
     //Write local memory back to buffer
-    writeVertexIndexGroup(offset+t*2, local_value[t*2].faceIndex);
-    writeVertexIndexGroup(offset+t*2+1, local_value[t*2+1].faceIndex);
+    writeVertexIndexGroup(faceIndex1, local_value[t*2].faceIndex);
+    writeVertexIndexGroup(faceIndex2, local_value[t*2+1].faceIndex);
 }
 
 void main() {
-    uint height = gl_WorkGroupSize.x * 2;
-    uint groupId = gl_WorkGroupID.x;//Model number, compare to minfo.size
+    //    uint height = gl_WorkGroupSize.x * 2;
+    //    uint groupId = gl_WorkGroupID.x;//Model number, compare to minfo.size
+    //    uint localId = gl_LocalInvocationID.x;
+    //    modelinfo minfo = getMInfo();
+    //    uint indexLength = minfo.size * 3;//Face count * index entries per face
+    //    uint computeSize = uint(pow(2, ceil(log(indexLength)/log(2))));
+    //    uint usedWorkgroups = (computeSize / (gl_WorkGroupSize.x * 2)) + 1;
+    //
+    //    if (gl_WorkGroupID.x >= usedWorkgroups) {
+    //        return;
+    //    }
+    //
+    //    //TODO GLOBAL
+    //    local_main(LOCAL_BMS, u_SortHeight);
+
+//}
+
+//void main() {
+    uint groupId = gl_WorkGroupID.x;
     uint localId = gl_LocalInvocationID.x;
-    modelinfo minfo = getMInfo();
-    uint indexLength = minfo.size * 3;//Face count * index entries per face
-    uint computeSize = uint(pow(2, ceil(log(indexLength)/log(2))));
-    uint usedWorkgroups = (computeSize / (gl_WorkGroupSize.x * 2)) + 1;
-
-    if (gl_WorkGroupID.x >= usedWorkgroups) {
-        return;
-    }
-
-    //TODO GLOBAL
-    local_main(LOCAL_BMS, u_SortHeight);
-
-
-    /*
-    int offset = minfo.offset;
-    int size = minfo.size;
-    int outOffset = minfo.idx;
-    int uvOffset = minfo.uvOffset;
-    int flags = minfo.flags;
+    modelinfo minfo = ol[groupId];
     ivec4 pos = ivec4(minfo.x, minfo.y, minfo.z, 0);
 
-    uint ssboOffset = localId;
-    ivec4 thisA, thisB, thisC;
-
-    // Grab triangle vertices from the correct buffer
-    if (flags < 0) {
-        thisA = vb[offset + ssboOffset * 3];
-        thisB = vb[offset + ssboOffset * 3 + 1];
-        thisC = vb[offset + ssboOffset * 3 + 2];
-    } else {
-        thisA = tempvb[offset + ssboOffset * 3];
-        thisB = tempvb[offset + ssboOffset * 3 + 1];
-        thisC = tempvb[offset + ssboOffset * 3 + 2];
+    if (localId == 0) {
+        min10 = 1600;
+        for (int i = 0; i < 12; ++i) {
+            totalNum[i] = 0;
+            totalDistance[i] = 0;
+        }
+        for (int i = 0; i < 18; ++i) {
+            totalMappedNum[i] = 0;
+        }
     }
 
-    uint myOffset = localId;
+    int prio1, dis1;
+    ivec4 vA1, vA2, vA3;
 
-    // position vertices in scene and write to out buffer
-    vout[outOffset + myOffset * 3]     = pos + thisA;
-    vout[outOffset + myOffset * 3 + 1] = pos + thisB;
-    vout[outOffset + myOffset * 3 + 2] = pos + thisC;
+    get_face(localId, minfo, cameraYaw, cameraPitch, prio1, dis1, vA1, vA2, vA3);
 
-    if (uvOffset < 0) {
-        uvout[outOffset + myOffset * 3]     = vec4(0, 0, 0, 0);
-        uvout[outOffset + myOffset * 3 + 1] = vec4(0, 0, 0, 0);
-        uvout[outOffset + myOffset * 3 + 2] = vec4(0, 0, 0, 0);
-    } else if (flags >= 0) {
-        uvout[outOffset + myOffset * 3]     = tempuv[uvOffset + localId * 3];
-        uvout[outOffset + myOffset * 3 + 1] = tempuv[uvOffset + localId * 3 + 1];
-        uvout[outOffset + myOffset * 3 + 2] = tempuv[uvOffset + localId * 3 + 2];
-    } else {
-        uvout[outOffset + myOffset * 3]     = uv[uvOffset + localId * 3];
-        uvout[outOffset + myOffset * 3 + 1] = uv[uvOffset + localId * 3 + 1];
-        uvout[outOffset + myOffset * 3 + 2] = uv[uvOffset + localId * 3 + 2];
-    }
-    */
+    memoryBarrierShared();
+    barrier();
+
+    add_face_prio_distance(localId, minfo, vA1, vA2, vA3, prio1, dis1, pos);
+
+    memoryBarrierShared();
+    barrier();
+
+    int prio1Adj;
+    int idx1 = map_face_priority(localId, minfo, prio1, dis1, prio1Adj);
+    priority[localId] = prio1Adj;
+
+    memoryBarrierShared();
+    barrier();
+
+    insert_dfs(localId, minfo, prio1Adj, dis1, idx1);
+
+    memoryBarrierShared();
+    barrier();
+
+//    sort_and_insert(localId, minfo, prio1Adj, dis1, vA1, vA2, vA3);
+    //Local main grabs 2 indices at a time, so only run half of them.
+    //TODO DEBUG
+//    if(gl_LocalInvocationID.x <= LOCAL_SIZE_X/2) {
+        local_main(LOCAL_BMS, LOCAL_SIZE_X);
+//    }
 }
