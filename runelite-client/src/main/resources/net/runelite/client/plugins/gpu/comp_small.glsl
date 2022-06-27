@@ -38,17 +38,9 @@ layout(local_size_x = LOCAL_SIZE_X) in;
 uniform int u_ExecutionType;
 uniform int u_SortHeight = 2048;
 
-//Pair of 3 indicies that index into vb[]
-//full indexes
-struct IndexGroup {
-    uint i1;
-    uint i2;
-    uint i3;
-};
-
 //Associate a face and its calculated distance
 struct IndexDistancePair {
-    IndexGroup indexGroup;
+    uint faceIndex; //read index
     float distance;
 };
 
@@ -61,50 +53,67 @@ modelinfo getMInfo() {
     return ol[gl_WorkGroupID.y];
 }
 
-uint getFullIndex(uint localIndex) {
-    if(localIndex * 3 >= getMInfo().size) {
+//Get vertex index from a model face index
+uint getVertexReadIndex(uint faceIndex) {
+    if(faceIndex >= getMInfo().size) {
         return DUMMY_INDEX;
     }
-    return getMInfo().offset + (localIndex * 3);
+    return getMInfo().offset + (faceIndex * 3);
 }
 
-IndexGroup readIndexGroup(uint localIndex) {
-    uint baseIndex = getMInfo().offset + localIndex;
-    return IndexGroup(baseIndex, baseIndex+1, baseIndex+2);
+uint getUVReadIndex(uint faceIndex) {
+    if(faceIndex >= getMInfo().size) {
+        return DUMMY_INDEX;
+    }
+    return getMInfo().uvOffset + (faceIndex * 3);
 }
 
-ivec4 indexToPosition(uint fullIndex) {
+uint getVertexWriteIndex(uint faceIndex) {
+    if(faceIndex >= getMInfo().size) {
+        return DUMMY_INDEX;
+    }
+    return getMInfo().idx + (faceIndex * 3);
+}
+
+ivec4 vertexIndexToPosition(uint vertexIndex) {
     if (getMInfo().flags < 0) {
-         return vb[fullIndex];
+         return vb[vertexIndex];
     } else {
-        return tempvb[fullIndex];
+        return tempvb[vertexIndex];
     }
 }
 
-int getAverageDistance(IndexGroup group) {
+int getAverageDistance(uint faceIndex) {
+    uint vertexIndex = getVertexReadIndex(faceIndex);
     return face_distance(
-        indexToPosition(group.i1),
-        indexToPosition(group.i2),
-        indexToPosition(group.i3),
+        vertexIndexToPosition(vertexIndex),
+        vertexIndexToPosition(vertexIndex+1),
+        vertexIndexToPosition(vertexIndex+2),
         cameraYaw,
         cameraPitch
     );
 }
 
-void writeIndexGroup(uint localIndex, IndexGroup indexGroup) {
+void writeVertexIndexGroup(uint writeFaceIndex, uint readFaceIndex) {
     modelinfo minfo = getMInfo();
+    if(readFaceIndex >= minfo.size) {
+        return;
+    }
+
     ivec4 pos = ivec4(minfo.x, minfo.y, minfo.z, 0);
-    uint writeIndex = minfo.idx + localIndex;
+    uint writeIndex = getVertexWriteIndex(writeFaceIndex);
+    uint readIndex = getVertexReadIndex(readFaceIndex);
+    uint uvReadIndex = getUVReadIndex(readFaceIndex);
     //TODO UV
     ivec4 thisA, thisB, thisC;
     if (minfo.flags < 0) {
-        thisA = vb[indexGroup.i1];
-        thisB = vb[indexGroup.i2];
-        thisC = vb[indexGroup.i3];
+        thisA = vb[readIndex];
+        thisB = vb[readIndex+1];
+        thisC = vb[readIndex+2];
     } else {
-        thisA = tempvb[indexGroup.i1];
-        thisB = tempvb[indexGroup.i2];
-        thisC = tempvb[indexGroup.i3];
+        thisA = tempvb[readIndex];
+        thisB = tempvb[readIndex+1];
+        thisC = tempvb[readIndex+2];
     }
     vout[writeIndex  ] = thisA + pos;
     vout[writeIndex+1] = thisB + pos;
@@ -115,13 +124,13 @@ void writeIndexGroup(uint localIndex, IndexGroup indexGroup) {
         uvout[writeIndex + 1] = vec4(0, 0, 0, 0);
         uvout[writeIndex + 2] = vec4(0, 0, 0, 0);
     } else if (getMInfo().flags >= 0) {
-        uvout[writeIndex    ] = tempuv[indexGroup.i1];
-        uvout[writeIndex + 1] = tempuv[indexGroup.i1 + 1];
-        uvout[writeIndex + 2] = tempuv[indexGroup.i1 + 2];
+        uvout[writeIndex    ] = tempuv[readIndex];
+        uvout[writeIndex + 1] = tempuv[readIndex+1];
+        uvout[writeIndex + 2] = tempuv[readIndex+2];
     } else {
-        uvout[writeIndex    ] = uv[indexGroup.i1];
-        uvout[writeIndex + 1] = uv[indexGroup.i1 + 1];
-        uvout[writeIndex + 2] = uv[indexGroup.i1 + 2];
+        uvout[writeIndex    ] = uv[readIndex];
+        uvout[writeIndex + 1] = uv[readIndex+1];
+        uvout[writeIndex + 2] = uv[readIndex+2];
     }
 }
 
@@ -129,26 +138,15 @@ void local_main(uint executionType, uint height) {
     uint t = gl_LocalInvocationID.x;
     uint offset = gl_WorkGroupSize.x * 2 * gl_WorkGroupID.x;
 
-    uint fullIndex1 = getFullIndex(offset+t*2);
-    uint fullIndex2 = getFullIndex(offset+t*2+1);
-    IndexGroup rig1 = readIndexGroup(fullIndex1);
-    IndexGroup rig2 = readIndexGroup(fullIndex2);
-    float distance1 = getAverageDistance(rig1);
-    float distance2 = getAverageDistance(rig2);
-
-    if (fullIndex1 == DUMMY_INDEX) {
-        rig1 = IndexGroup(DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX);
-        distance1 = DUMMY_DISTANCE;
-    }
-    if (fullIndex2 == DUMMY_INDEX) {
-        rig2 = IndexGroup(DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX);
-        distance2 = DUMMY_DISTANCE;
-    }
+    uint faceIndex1 = offset+t*2;
+    uint faceIndex2 = offset+t*2+1;
+    float distance1 = getAverageDistance(faceIndex1);
+    float distance2 = getAverageDistance(faceIndex2);
 
     //Each local worker must save two elements to local memory,
     //as there are twice as many elements as workers.
-    local_value[t*2] = IndexDistancePair(rig1, distance1);
-    local_value[t*2+1] = IndexDistancePair(rig2, distance2);
+    local_value[t*2] = IndexDistancePair(faceIndex1, distance1);
+    local_value[t*2+1] = IndexDistancePair(faceIndex2, distance2);
 
     if (executionType == LOCAL_BMS) {
 //        local_bms(height);
@@ -160,15 +158,8 @@ void local_main(uint executionType, uint height) {
     barrier();
 
     //Write local memory back to buffer
-    IndexGroup ig1 = local_value[t*2].indexGroup;
-    IndexGroup ig2 = local_value[t*2+1].indexGroup;
-
-    if (fullIndex1 != DUMMY_INDEX) {
-        writeIndexGroup(fullIndex1, ig1);
-    }
-    if (fullIndex2 != DUMMY_INDEX) {
-        writeIndexGroup(fullIndex2, ig2);
-    }
+    writeVertexIndexGroup(offset+t*2, local_value[t*2].faceIndex);
+    writeVertexIndexGroup(offset+t*2+1, local_value[t*2+1].faceIndex);
 }
 
 void main() {
