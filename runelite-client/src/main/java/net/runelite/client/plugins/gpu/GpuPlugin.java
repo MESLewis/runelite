@@ -90,17 +90,7 @@ import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.PluginInstantiationException;
 import net.runelite.client.plugins.PluginManager;
-import static net.runelite.client.plugins.gpu.GLUtil.glDeleteBuffer;
-import static net.runelite.client.plugins.gpu.GLUtil.glDeleteFrameBuffer;
-import static net.runelite.client.plugins.gpu.GLUtil.glDeleteRenderbuffers;
-import static net.runelite.client.plugins.gpu.GLUtil.glDeleteTexture;
-import static net.runelite.client.plugins.gpu.GLUtil.glDeleteVertexArrays;
-import static net.runelite.client.plugins.gpu.GLUtil.glGenBuffers;
-import static net.runelite.client.plugins.gpu.GLUtil.glGenFrameBuffer;
-import static net.runelite.client.plugins.gpu.GLUtil.glGenRenderbuffer;
-import static net.runelite.client.plugins.gpu.GLUtil.glGenTexture;
-import static net.runelite.client.plugins.gpu.GLUtil.glGenVertexArrays;
-import static net.runelite.client.plugins.gpu.GLUtil.glGetInteger;
+import static net.runelite.client.plugins.gpu.GLUtil.*;
 import net.runelite.client.plugins.gpu.config.AntiAliasingMode;
 import net.runelite.client.plugins.gpu.config.UIScalingMode;
 import net.runelite.client.plugins.gpu.template.Template;
@@ -240,6 +230,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	 */
 	private int smallModels;
 
+	private int largestSmallModel;
+
 	/**
 	 * number of models in large buffer
 	 */
@@ -328,6 +320,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				fboSceneHandle = rboSceneHandle = -1; // AA FBO
 				targetBufferOffset = 0;
 				unorderedModels = smallModels = largeModels = 0;
+				largestSmallModel = 0;
 				drawingModel = false;
 
 				canvas = client.getCanvas();
@@ -1044,7 +1037,14 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 5, sceneUvBuffer.glBufferId);
 		gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 6, tmpUvBuffer.glBufferId);
 
-		gl.glDispatchCompute(smallModels, 1, 1);
+
+		int maxHeight = (int) Math.pow(2, Math.ceil(Math.log(largestSmallModel)/Math.log(2)));
+		int groups = (maxHeight / (1024 * 2)) + 1;
+		int height = 1024 * 2;
+		final int MEMORY_BARRIERS = gl.GL_BUFFER_UPDATE_BARRIER_BIT | gl.GL_UNIFORM_BARRIER_BIT;
+
+		gl.glDispatchCompute(groups, smallModels, 1);
+		gl.glMemoryBarrier(MEMORY_BARRIERS);
 
 		// large
 		gl.glUseProgram(glComputeProgram);
@@ -1791,6 +1791,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		if (triangles <= SMALL_TRIANGLE_COUNT)
 		{
 			++smallModels;
+			largestSmallModel = Math.max(largestSmallModel, triangles);
 			return modelBufferSmall;
 		}
 		else
