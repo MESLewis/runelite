@@ -76,19 +76,27 @@ uint getVertexWriteIndex(uint faceIndex) {
 }
 
 ivec4 vertexIndexToPosition(uint vertexIndex) {
+    ivec4 pos;
     if (getMInfo().flags < 0) {
-         return vb[vertexIndex];
+         pos = vb[vertexIndex];
     } else {
-        return tempvb[vertexIndex];
+        pos = tempvb[vertexIndex];
     }
+    int orientation = getMInfo().flags & 0x7ff;
+    return rotate(pos, orientation);
 }
 
 int getAverageDistance(uint faceIndex) {
     uint vertexIndex = getVertexReadIndex(faceIndex);
-    return face_distance(
-        vertexIndexToPosition(vertexIndex),
-        vertexIndexToPosition(vertexIndex+1),
-        vertexIndexToPosition(vertexIndex+2),
+    ivec4 thisA = vertexIndexToPosition(vertexIndex);
+    ivec4 thisB = vertexIndexToPosition(vertexIndex+1);
+    ivec4 thisC = vertexIndexToPosition(vertexIndex+2);
+    int radius = (getMInfo().flags & 0x7fffffff) >> 12;
+    int thisPriority = (thisA.w >> 16) & 0xff;
+    return radius + face_distance(
+        thisA,
+        thisB,
+        thisC,
         cameraYaw,
         cameraPitch
     );
@@ -104,7 +112,6 @@ void writeVertexIndexGroup(uint writeFaceIndex, uint readFaceIndex) {
     uint writeIndex = getVertexWriteIndex(writeFaceIndex);
     uint readIndex = getVertexReadIndex(readFaceIndex);
     uint uvReadIndex = getUVReadIndex(readFaceIndex);
-    //TODO UV
     ivec4 thisA, thisB, thisC;
     if (minfo.flags < 0) {
         thisA = vb[readIndex];
@@ -115,24 +122,73 @@ void writeVertexIndexGroup(uint writeFaceIndex, uint readFaceIndex) {
         thisB = tempvb[readIndex+1];
         thisC = tempvb[readIndex+2];
     }
-    vout[writeIndex  ] = thisA + pos;
-    vout[writeIndex+1] = thisB + pos;
-    vout[writeIndex+2] = thisC + pos;
+
+    int orientation = minfo.flags & 0x7ff;
+    ivec4 thisrvA = rotate(thisA, orientation);
+    ivec4 thisrvB = rotate(thisB, orientation);
+    ivec4 thisrvC = rotate(thisC, orientation);
+
+
+    vout[writeIndex  ] = thisrvA + pos;
+    vout[writeIndex+1] = thisrvB + pos;
+    vout[writeIndex+2] = thisrvC + pos;
 
     if (getMInfo().uvOffset < 0) {
         uvout[writeIndex    ] = vec4(0, 0, 0, 0);
         uvout[writeIndex + 1] = vec4(0, 0, 0, 0);
         uvout[writeIndex + 2] = vec4(0, 0, 0, 0);
     } else if (getMInfo().flags >= 0) {
-        uvout[writeIndex    ] = tempuv[readIndex];
-        uvout[writeIndex + 1] = tempuv[readIndex+1];
-        uvout[writeIndex + 2] = tempuv[readIndex+2];
+        uvout[writeIndex    ] = tempuv[uvReadIndex];
+        uvout[writeIndex + 1] = tempuv[uvReadIndex+1];
+        uvout[writeIndex + 2] = tempuv[uvReadIndex+2];
     } else {
-        uvout[writeIndex    ] = uv[readIndex];
-        uvout[writeIndex + 1] = uv[readIndex+1];
-        uvout[writeIndex + 2] = uv[readIndex+2];
+        uvout[writeIndex    ] = uv[uvReadIndex];
+        uvout[writeIndex + 1] = uv[uvReadIndex+1];
+        uvout[writeIndex + 2] = uv[uvReadIndex+2];
     }
 }
+
+//Compare and swap elements in workgroup-local memory
+void local_compare_and_swap(uvec2 idx) {
+    if(local_value[idx.x].distance < local_value[idx.y].distance) {
+        IndexDistancePair tmp = local_value[idx.x];
+        local_value[idx.x] = local_value[idx.y];
+        local_value[idx.x] = tmp;
+    }
+}
+
+void local_flip(uint h) {
+    uint t = gl_LocalInvocationID.x;
+    barrier();
+
+    uint half_h = h >> 1;
+    ivec2 indices =
+    ivec2(h*((2*t)/h)) +
+    ivec2(t%half_h, h-1-(t%half_h));
+
+    local_compare_and_swap(indices);
+}
+
+void local_disperse(in uint h){
+    uint t = gl_LocalInvocationID.x;
+    for(; h > 1; h /= 2) {
+        barrier();
+        uint half_h = h >> 1;
+        ivec2 indices =
+        ivec2(h*((2*t)/h))+
+        ivec2(t%half_h, half_h+(t%half_h));
+
+        local_compare_and_swap(indices);
+    }
+}
+
+void local_bms(uint h) {
+    for (uint hh = 2; hh <= h; hh <<= 1) {
+        local_flip(hh);
+        local_disperse(hh/2);
+    }
+}
+
 
 void local_main(uint executionType, uint height) {
     uint t = gl_LocalInvocationID.x;
@@ -148,12 +204,12 @@ void local_main(uint executionType, uint height) {
     local_value[t*2] = IndexDistancePair(faceIndex1, distance1);
     local_value[t*2+1] = IndexDistancePair(faceIndex2, distance2);
 
-    if (executionType == LOCAL_BMS) {
-//        local_bms(height);
-    }
-    if (executionType == LOCAL_DISPERSE) {
+//    if (executionType == LOCAL_BMS) {
+        local_bms(height);
+//    }
+//    if (executionType == LOCAL_DISPERSE) {
 //        local_disperse(height);
-    }
+//    }
 
     barrier();
 
