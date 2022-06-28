@@ -169,9 +169,9 @@ void writeVertexIndexGroup(uint writeFaceIndex, uint readFaceIndex) {
 
 //Compare and swap elements in workgroup-local memory
 void local_compare_and_swap(uvec2 idx) {
-    if(idx.x >= getMInfo().size && idx.y >= getMInfo().size) {
-        return;
-    }
+//    if(idx.x >= getMInfo().size && idx.y >= getMInfo().size) {
+//        return;
+//    }
     int d1 = local_value[idx.x].distance;
     int id1 = d1 >> 16;
     int distance1 = d1 & 0xffff;
@@ -338,7 +338,7 @@ void main() {
 //    sort_and_insert(localId, minfo, prio1Adj, dis1, vA1, vA2, vA3);
     //Local main grabs 2 indices at a time, so only run half of them.
     //TODO DEBUG
-    if(gl_LocalInvocationID.x <= LOCAL_SIZE_X/2) {
+//    if(gl_LocalInvocationID.x <= LOCAL_SIZE_X/2) {
         local_main(LOCAL_BMS, LOCAL_SIZE_X);
-    }
+//    }
 }

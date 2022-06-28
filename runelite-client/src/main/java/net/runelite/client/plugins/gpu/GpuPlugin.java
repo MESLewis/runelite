@@ -1046,7 +1046,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 //		gl.glDispatchCompute(groups, smallModels, 1);
 		gl.glMemoryBarrier(MEMORY_BARRIERS);
 
-//		gl.glDispatchCompute(smallModels, 1, 1);
+		gl.glDispatchCompute(smallModels, 1, 1);
 
 		gl.glMemoryBarrier(MEMORY_BARRIERS);
 
