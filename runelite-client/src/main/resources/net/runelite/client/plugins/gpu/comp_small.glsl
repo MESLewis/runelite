@@ -149,7 +149,7 @@ void writeVertexIndexGroup(uint writeFaceIndex, uint readFaceIndex) {
     //TODO DEBUG
 //    IndexDistancePair d = local_value[gl_LocalInvocationID.x];
 //    vout[writeIndex  ] = ivec4(readFaceIndex, writeFaceIndex, readIndex, writeIndex);
-//    vout[writeIndex+1] = ivec4(1,1,1,1);
+//    vout[writeIndex+1] = ivec4(minfo.size,minfo.offset,minfo.idx,1);
 //    vout[writeIndex+2] = ivec4(2,2,2,2);
 
     if (getMInfo().uvOffset < 0) {
