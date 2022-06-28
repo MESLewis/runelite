@@ -1024,7 +1024,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 5, sceneUvBuffer.glBufferId);
 		gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 6, tmpUvBuffer.glBufferId);
 
-//		gl.glDispatchCompute(unorderedModels, 1, 1);
+		gl.glDispatchCompute(unorderedModels, 1, 1);
 
 		// small
 		gl.glUseProgram(glSmallComputeProgram);
@@ -1041,12 +1041,14 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 //		int maxHeight = (int) Math.pow(2, Math.ceil(Math.log(largestSmallModel)/Math.log(2)));
 //		int groups = (maxHeight / (1024 * 2)) + 1;
 //		int height = 1024 * 2;
-//		final int MEMORY_BARRIERS = gl.GL_BUFFER_UPDATE_BARRIER_BIT | gl.GL_UNIFORM_BARRIER_BIT;
+		final int MEMORY_BARRIERS = gl.GL_BUFFER_UPDATE_BARRIER_BIT | gl.GL_UNIFORM_BARRIER_BIT;
 //
 //		gl.glDispatchCompute(groups, smallModels, 1);
-//		gl.glMemoryBarrier(MEMORY_BARRIERS);
+		gl.glMemoryBarrier(MEMORY_BARRIERS);
 
-		gl.glDispatchCompute(smallModels, 1, 1);
+//		gl.glDispatchCompute(smallModels, 1, 1);
+
+		gl.glMemoryBarrier(MEMORY_BARRIERS);
 
 		// large
 		gl.glUseProgram(glComputeProgram);

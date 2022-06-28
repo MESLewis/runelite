@@ -53,7 +53,7 @@ shared int priority[LOCAL_SIZE_X]; //priority
 struct IndexDistancePair {
     uint faceIndex; //read index
     int distance;
-    uint priority;
+    int priority;
 };
 
 //Workgroup memory.
@@ -67,23 +67,23 @@ modelinfo getMInfo() {
 
 //Get vertex index from a model face index
 uint getVertexReadIndex(uint faceIndex) {
-    if(faceIndex >= getMInfo().size) {
-        return DUMMY_INDEX;
-    }
+//    if(faceIndex >= getMInfo().size) {
+//        return DUMMY_INDEX;
+//    }
     return getMInfo().offset + (faceIndex * 3);
 }
 
 uint getUVReadIndex(uint faceIndex) {
-    if(faceIndex >= getMInfo().size) {
-        return DUMMY_INDEX;
-    }
+//    if(faceIndex >= getMInfo().size) {
+//        return DUMMY_INDEX;
+//    }
     return getMInfo().uvOffset + (faceIndex * 3);
 }
 
 uint getVertexWriteIndex(uint faceIndex) {
-    if(faceIndex >= getMInfo().size) {
-        return DUMMY_INDEX;
-    }
+//    if(faceIndex >= getMInfo().size) {
+//        return DUMMY_INDEX;
+//    }
     return getMInfo().idx + (faceIndex * 3);
 }
 
@@ -117,9 +117,9 @@ int getAverageDistance(uint faceIndex) {
 
 void writeVertexIndexGroup(uint writeFaceIndex, uint readFaceIndex) {
     modelinfo minfo = getMInfo();
-//    if(readFaceIndex > minfo.size || writeFaceIndex > minfo.size) {
-//        return;
-//    }
+    if(readFaceIndex >= minfo.size || writeFaceIndex >= minfo.size) {
+        return;
+    }
 
     ivec4 pos = ivec4(minfo.x, minfo.y, minfo.z, 0);
     uint writeIndex = getVertexWriteIndex(writeFaceIndex);
@@ -169,20 +169,20 @@ void writeVertexIndexGroup(uint writeFaceIndex, uint readFaceIndex) {
 
 //Compare and swap elements in workgroup-local memory
 void local_compare_and_swap(uvec2 idx) {
-    if(idx.x >= getMInfo().size || idx.y >= getMInfo().size) {
+    if(idx.x >= getMInfo().size && idx.y >= getMInfo().size) {
         return;
     }
     int d1 = local_value[idx.x].distance;
     int id1 = d1 >> 16;
     int distance1 = d1 & 0xffff;
-    uint priority1 = local_value[idx.x].priority;
+    int priority1 = local_value[idx.x].priority;
     int d2 = local_value[idx.y].distance;
     int id2 = d2 >> 16;
     int distance2 = d2 & 0xffff;
-    uint priority2 = local_value[idx.y].priority;
+    int priority2 = local_value[idx.y].priority;
 //    if(local_value[idx.x].distance < local_value[idx.y].distance) {
     if(
-//    (priority1 >= priority2) &&
+    (priority1 >= priority2) &&
     ((distance2 > distance1)
     || (distance2 == distance1 && id2 < id1))) {
         IndexDistancePair tmp = local_value[idx.x];
@@ -239,11 +239,13 @@ void local_main(uint executionType, uint height) {
     if(faceIndex1 <= getMInfo().size) {
         idp1 = IndexDistancePair(faceIndex1, distance1, priority[faceIndex1]);
     } else {
+        faceIndex1 = DUMMY_INDEX;
         idp1 = IndexDistancePair(DUMMY_INDEX, DUMMY_DISTANCE, 0);
     }
     if(faceIndex2 <= getMInfo().size) {
         idp2 = IndexDistancePair(faceIndex2, distance2, priority[faceIndex2]);
     } else {
+        faceIndex1 = DUMMY_INDEX;
         idp2 = IndexDistancePair(DUMMY_INDEX, DUMMY_DISTANCE, 0);
     }
 
@@ -336,7 +338,7 @@ void main() {
 //    sort_and_insert(localId, minfo, prio1Adj, dis1, vA1, vA2, vA3);
     //Local main grabs 2 indices at a time, so only run half of them.
     //TODO DEBUG
-//    if(gl_LocalInvocationID.x <= LOCAL_SIZE_X/2) {
+    if(gl_LocalInvocationID.x <= LOCAL_SIZE_X/2) {
         local_main(LOCAL_BMS, LOCAL_SIZE_X);
-//    }
+    }
 }
