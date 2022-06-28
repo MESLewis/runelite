@@ -169,9 +169,10 @@ void writeVertexIndexGroup(uint writeFaceIndex, uint readFaceIndex) {
 
 //Compare and swap elements in workgroup-local memory
 void local_compare_and_swap(uvec2 idx) {
-//    if(idx.x >= getMInfo().size && idx.y >= getMInfo().size) {
-//        return;
-//    }
+    if(idx.x >= getMInfo().size || idx.y >= getMInfo().size) {
+        return;
+    }
+    //TODO dummy distance is gonna be weird with this
     int d1 = local_value[idx.x].distance;
     int id1 = d1 >> 16;
     int distance1 = d1 & 0xffff;
