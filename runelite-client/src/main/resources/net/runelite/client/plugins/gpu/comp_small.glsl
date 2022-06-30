@@ -23,7 +23,8 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include version_header
-#define LOCAL_SIZE_X 512
+//LOCAL_SIZE_X should be 1/2 of SMALL_TRIANGLE_COUNT in GpuPlugin.java
+#define LOCAL_SIZE_X 1024
 #define DUMMY_INDEX 10000000
 #define DUMMY_DISTANCE -1000000
 #include comp_common.glsl
