@@ -99,20 +99,23 @@ ivec4 vertexIndexToPosition(uint vertexIndex) {
 }
 
 int getAverageDistance(uint faceIndex) {
-//    uint vertexIndex = getVertexReadIndex(faceIndex);
-//    ivec4 thisA = vertexIndexToPosition(vertexIndex);
-//    ivec4 thisB = vertexIndexToPosition(vertexIndex+1);
-//    ivec4 thisC = vertexIndexToPosition(vertexIndex+2);
-//    int radius = (getMInfo().flags & 0x7fffffff) >> 12;
-//    int thisPriority = (thisA.w >> 16) & 0xff;
-//    return radius + face_distance(
-//        thisA,
-//        thisB,
-//        thisC,
-//        cameraYaw,
-//        cameraPitch
-//    );
-    return dfs[faceIndex];
+    if(faceIndex == DUMMY_INDEX) {
+        return DUMMY_DISTANCE;
+    }
+    uint vertexIndex = getVertexReadIndex(faceIndex);
+    ivec4 thisA = vertexIndexToPosition(vertexIndex);
+    ivec4 thisB = vertexIndexToPosition(vertexIndex+1);
+    ivec4 thisC = vertexIndexToPosition(vertexIndex+2);
+    int radius = (getMInfo().flags & 0x7fffffff) >> 12;
+    int thisPriority = (thisA.w >> 16) & 0xff;
+    return radius + face_distance(
+        thisA,
+        thisB,
+        thisC,
+        cameraYaw,
+        cameraPitch
+    );
+//    return dfs[faceIndex];
 }
 
 void writeVertexIndexGroup(uint writeFaceIndex, uint readFaceIndex) {
@@ -146,11 +149,15 @@ void writeVertexIndexGroup(uint writeFaceIndex, uint readFaceIndex) {
     vout[writeIndex  ] = thisrvA + pos;
     vout[writeIndex+1] = thisrvB + pos;
     vout[writeIndex+2] = thisrvC + pos;
+
     //TODO DEBUG
 //    IndexDistancePair d = local_value[gl_LocalInvocationID.x];
+//    int id1 = d.distance >> 16;
+//    int distance1 = d.distance & 0xffff;
 //    vout[writeIndex  ] = ivec4(readFaceIndex, writeFaceIndex, readIndex, writeIndex);
 //    vout[writeIndex+1] = ivec4(minfo.size,minfo.offset,minfo.idx,1);
-//    vout[writeIndex+2] = ivec4(2,2,2,2);
+//    vout[writeIndex+2] = ivec4(2,d.priority,id1,distance1);
+//    return;
 
     if (getMInfo().uvOffset < 0) {
         uvout[writeIndex    ] = vec4(0, 0, 0, 0);
@@ -172,7 +179,6 @@ void local_compare_and_swap(uvec2 idx) {
     if(idx.x >= getMInfo().size || idx.y >= getMInfo().size) {
         return;
     }
-    //TODO dummy distance is gonna be weird with this
     int d1 = local_value[idx.x].distance;
     int id1 = d1 >> 16;
     int distance1 = d1 & 0xffff;
@@ -181,11 +187,24 @@ void local_compare_and_swap(uvec2 idx) {
     int id2 = d2 >> 16;
     int distance2 = d2 & 0xffff;
     int priority2 = local_value[idx.y].priority;
-//    if(local_value[idx.x].distance < local_value[idx.y].distance) {
-    if(
-    (priority1 >= priority2) &&
-    ((distance2 > distance1)
-    || (distance2 == distance1 && id2 < id1))) {
+
+    int shouldFlip = 0;
+
+    if(priority1 > priority2) {
+        shouldFlip = 1;
+    }
+    if(priority1 == priority2) {
+        if(distance1 < distance2) {
+            shouldFlip = 1;
+        }
+        if(distance1 == distance2) {
+            if(id1 >= id2) {
+                shouldFlip = 1;
+            }
+        }
+    }
+
+    if(shouldFlip == 1) {
         IndexDistancePair tmp = local_value[idx.x];
         local_value[idx.x] = local_value[idx.y];
         local_value[idx.y] = tmp;
@@ -339,7 +358,7 @@ void main() {
 //    sort_and_insert(localId, minfo, prio1Adj, dis1, vA1, vA2, vA3);
     //Local main grabs 2 indices at a time, so only run half of them.
     //TODO DEBUG
-//    if(gl_LocalInvocationID.x <= LOCAL_SIZE_X/2) {
+    if(gl_LocalInvocationID.x < LOCAL_SIZE_X/2) {
         local_main(LOCAL_BMS, LOCAL_SIZE_X);
-//    }
+    }
 }

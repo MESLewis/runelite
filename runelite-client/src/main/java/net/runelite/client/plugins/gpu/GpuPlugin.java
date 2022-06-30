@@ -113,7 +113,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 {
 	// This is the maximum number of triangles the compute shaders support
 	static final int MAX_TRIANGLE = 4096;
-	static final int SMALL_TRIANGLE_COUNT = 512;
+	static final int SMALL_TRIANGLE_COUNT = 1024;
 	private static final int FLAG_SCENE_BUFFER = Integer.MIN_VALUE;
 	private static final int DEFAULT_DISTANCE = 25;
 	static final int MAX_DISTANCE = 90;
@@ -1044,11 +1044,12 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		final int MEMORY_BARRIERS = gl.GL_BUFFER_UPDATE_BARRIER_BIT | gl.GL_UNIFORM_BARRIER_BIT;
 //
 //		gl.glDispatchCompute(groups, smallModels, 1);
-		gl.glMemoryBarrier(MEMORY_BARRIERS);
+//		gl.glMemoryBarrier(MEMORY_BARRIERS);
 
+//		gl.glDispatchCompute(1, 1, 1);
 		gl.glDispatchCompute(smallModels, 1, 1);
 
-		gl.glMemoryBarrier(MEMORY_BARRIERS);
+//		gl.glMemoryBarrier(MEMORY_BARRIERS);
 
 		// large
 		gl.glUseProgram(glComputeProgram);
@@ -1061,7 +1062,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 5, sceneUvBuffer.glBufferId);
 		gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 6, tmpUvBuffer.glBufferId);
 
-//		gl.glDispatchCompute(largeModels, 1, 1);
+		gl.glDispatchCompute(largeModels, 1, 1);
 	}
 
 	@Override
