@@ -117,10 +117,9 @@ public class FakeNPC
 	 */
 	public void processClientTick()
 	{
-		//TODO rotate towards
 		LocalPoint walkingDestination = realNPC.getLocalLocation();
 		LocalPoint curLocation = rlobj.getLocation();
-		final int movementDelta = 20;
+		final int movementDelta = 5;
 		int dx = Math.min(movementDelta, Math.abs(curLocation.getX() - walkingDestination.getX()));
 		int dy = Math.min(movementDelta, Math.abs(curLocation.getY() - walkingDestination.getY()));
 		if (curLocation.getX() > walkingDestination.getX())
@@ -141,5 +140,7 @@ public class FakeNPC
 			rlobj.setActive(false);
 			plugin.removeWalking(this);
 		}
+
+		//TODO set rotation first on direction of movement then to match realNPC
 	}
 }
