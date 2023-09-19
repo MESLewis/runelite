@@ -2,7 +2,9 @@ package net.runelite.client.plugins.extendednpcloading;
 
 import com.google.inject.Provides;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
@@ -11,6 +13,7 @@ import net.runelite.api.NPC;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.NpcDespawned;
 import net.runelite.api.events.NpcSpawned;
+import net.runelite.api.events.PostClientTick;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -30,7 +33,11 @@ public class ExtendedNPCsPlugin extends Plugin
 
 	@Inject
 	private ExtendedNPCsConfig config;
-	private HashMap<Integer, FakeNPC> fakeNpcs = new HashMap<>();
+	//Contains every FakeNPC
+	private Map<Integer, FakeNPC> fakeNpcs = new HashMap<>();
+	//Subset of FakeNPC that need to have their position updated
+	private Set<FakeNPC> walking = new HashSet<>();
+	private Set<FakeNPC> walkingToRemove = new HashSet<>();
 
 	@Override
 	protected void startUp() throws Exception
@@ -68,6 +75,10 @@ public class ExtendedNPCsPlugin extends Plugin
 	@Subscribe
 	public void onNpcDespawned(NpcDespawned eventNpc)
 	{
+//		if(!eventNpc.getNpc().getName().equals("Hans")) {
+//			return;
+//		}
+
 		NPC npc = eventNpc.getNpc();
 		int npcId = eventNpc.getNpc().getIndex();
 		FakeNPC fakeNpc;
@@ -77,10 +88,10 @@ public class ExtendedNPCsPlugin extends Plugin
 		}
 		else
 		{
-			fakeNpc = new FakeNPC(client, npc);
+			fakeNpc = new FakeNPC(this, client, npc);
 			fakeNpcs.put(npcId, fakeNpc);
 		}
-		fakeNpc.jumpToAndShow(npc.getLocalLocation());
+		fakeNpc.jumpToAndShow(npc);
 	}
 
 	@Subscribe
@@ -90,8 +101,29 @@ public class ExtendedNPCsPlugin extends Plugin
 		if (fakeNpcs.containsKey(npcId))
 		{
 			FakeNPC fakeNPC = fakeNpcs.get(npcId);
-			fakeNPC.lerpToAndHide(eventNpc.getNpc().getLocalLocation());
+			fakeNPC.lerpToAndHide(eventNpc.getNpc());
 		}
+	}
+
+	@Subscribe
+	public void onPostClientTick(PostClientTick tick)
+	{
+		for (FakeNPC npc : walking)
+		{
+			npc.processClientTick();
+		}
+		walking.removeAll(walkingToRemove);
+		walkingToRemove.clear();
+	}
+
+	void addWalking(FakeNPC npc)
+	{
+		this.walking.add(npc);
+	}
+
+	void removeWalking(FakeNPC npc)
+	{
+		this.walkingToRemove.add(npc);
 	}
 
 	@Provides
