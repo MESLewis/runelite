@@ -9,6 +9,9 @@ import net.runelite.api.RuneLiteObject;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
 
+/**
+ * Max distance between a real NPC and the player is 15 tiles.
+ */
 public class FakeNPC
 {
 	private Client client;
@@ -21,6 +24,7 @@ public class FakeNPC
 	private RuneLiteObject rlobj;
 	private WorldPoint worldPoint;
 	private NPC realNPC;
+	private LocalPoint walkingDestination;
 
 	public FakeNPC(ExtendedNPCsPlugin plugin, Client client, NPC npc)
 	{
@@ -88,10 +92,7 @@ public class FakeNPC
 
 	public void lerpToAndHide(NPC spawnedNPC)
 	{
-//		LocalPoint localPoint = spawnedNPC.getLocalLocation();
-//		rlobj.setLocation(localPoint, client.getPlane());
-//		worldPoint = WorldPoint.fromLocal(client, rlobj.getLocation());
-//		rlobj.setActive(false);
+		//TODO probably skip lerp if distance is like > 10 tiles?
 		this.realNPC = spawnedNPC;
 		rlobj.setAnimation(client.loadAnimation(walkAnimation));
 		rlobj.setShouldLoop(true);
@@ -100,9 +101,11 @@ public class FakeNPC
 
 	public void jumpToAndShow(NPC despawnedNPC)
 	{
-		this.realNPC = despawnedNPC; //TODO probably set this null?
+		this.realNPC = null;
 		rlobj.setLocation(despawnedNPC.getLocalLocation(), client.getPlane());
 		worldPoint = WorldPoint.fromLocal(client, rlobj.getLocation());
+		rlobj.setAnimation(client.loadAnimation(idlePoseAnimation));
+		rlobj.setOrientation(despawnedNPC.getOrientation());
 		rlobj.setActive(true);
 	}
 
@@ -117,9 +120,12 @@ public class FakeNPC
 	 */
 	public void processClientTick()
 	{
-		LocalPoint walkingDestination = realNPC.getLocalLocation();
+		if (realNPC != null)
+		{
+			walkingDestination = realNPC.getLocalLocation();
+		}
 		LocalPoint curLocation = rlobj.getLocation();
-		final int movementDelta = 5;
+		final int movementDelta = 7;
 		int dx = Math.min(movementDelta, Math.abs(curLocation.getX() - walkingDestination.getX()));
 		int dy = Math.min(movementDelta, Math.abs(curLocation.getY() - walkingDestination.getY()));
 		if (curLocation.getX() > walkingDestination.getX())
@@ -135,12 +141,86 @@ public class FakeNPC
 		int newY = curLocation.getY() + dy;
 		rlobj.setLocation(new LocalPoint(newX, newY), client.getPlane());
 
-		if (rlobj.getLocation().distanceTo(walkingDestination) < 1)
+		final int orientationDelta = 50;
+		int orientationDestination = rlobj.getOrientation();
+		if (realNPC != null)
 		{
-			rlobj.setActive(false);
-			plugin.removeWalking(this);
+			orientationDestination = realNPC.getOrientation();
+		}
+		if (dx != 0 || dy != 0)
+		{
+			//Math to face walking direction
+			double angleDegrees = Math.toDegrees(Math.atan2(-dx, -dy));
+			angleDegrees = (360 + (angleDegrees % 360)) % 360;
+			orientationDestination = (int) (angleDegrees * 2047d / 360d);
 		}
 
-		//TODO set rotation first on direction of movement then to match realNPC
+		int dorient = Math.min(orientationDelta, Math.abs(rlobj.getOrientation() - orientationDestination));
+		if (rlobj.getOrientation() > orientationDestination)
+		{
+			dorient *= -1;
+		}
+		int newOrientation = rlobj.getOrientation() + dorient;
+		rlobj.setOrientation(newOrientation);
+
+
+		if (rlobj.getLocation().distanceTo(walkingDestination) < 1
+			&& rlobj.getOrientation() == orientationDestination)
+		{
+			if (realNPC != null)
+			{
+				rlobj.setActive(false);
+			}
+			plugin.removeWalking(this);
+		}
+	}
+
+	/**
+	 * Used for random wander, and to stay near the realNPC boundary line
+	 */
+	public void processGameTick()
+	{
+		if (rlobj.isActive() && this.realNPC == null)
+		{
+			LocalPoint playerLocation = client.getLocalPlayer().getLocalLocation();
+			LocalPoint curLocation = rlobj.getLocation();
+
+			//If the fake npc is within the real npc visible range
+			int distanceX = Math.abs(curLocation.getX() - playerLocation.getX());
+			int distanceY = Math.abs(curLocation.getY() - playerLocation.getY());
+			if (distanceX < 10 * 128 && distanceY < 10 * 128)
+			{
+				int dx = 0;
+				int dy = 0;
+				//Move to the closest edge
+				if (distanceX > distanceY)
+				{
+					if (curLocation.getX() > playerLocation.getX())
+					{
+						dx = 256;
+					}
+					else
+					{
+						dx = -256;
+					}
+				}
+				else
+				{
+					if (curLocation.getY() > playerLocation.getY())
+					{
+						dy = 256;
+					}
+					else
+					{
+						dy = -256;
+					}
+				}
+				int newX = curLocation.getX() + dx;
+				int newY = curLocation.getY() + dy;
+				walkingDestination = new LocalPoint(newX, newY);
+				plugin.addWalking(this);
+			}
+
+		}
 	}
 }
