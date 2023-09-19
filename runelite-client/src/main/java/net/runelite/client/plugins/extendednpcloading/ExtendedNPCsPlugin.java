@@ -10,11 +10,13 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.NPC;
+import net.runelite.api.Renderable;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.NpcDespawned;
 import net.runelite.api.events.NpcSpawned;
 import net.runelite.api.events.PostClientTick;
 import net.runelite.client.callback.ClientThread;
+import net.runelite.client.callback.Hooks;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
@@ -30,6 +32,8 @@ public class ExtendedNPCsPlugin extends Plugin
 	private Client client;
 	@Inject
 	private ClientThread clientThread;
+	@Inject
+	private Hooks hooks;
 
 	@Inject
 	private ExtendedNPCsConfig config;
@@ -39,14 +43,18 @@ public class ExtendedNPCsPlugin extends Plugin
 	private Set<FakeNPC> walking = new HashSet<>();
 	private Set<FakeNPC> walkingToRemove = new HashSet<>();
 
+	private final Hooks.RenderableDrawListener drawListener = this::shouldDraw;
+
 	@Override
 	protected void startUp() throws Exception
 	{
+		hooks.registerRenderableDrawListener(drawListener);
 	}
 
 	@Override
 	protected void shutDown() throws Exception
 	{
+		hooks.unregisterRenderableDrawListener(drawListener);
 		clientThread.invokeLater(() ->
 		{
 			for (FakeNPC npc : fakeNpcs.values())
@@ -124,6 +132,21 @@ public class ExtendedNPCsPlugin extends Plugin
 	void removeWalking(FakeNPC npc)
 	{
 		this.walkingToRemove.add(npc);
+	}
+
+	boolean shouldDraw(Renderable renderable, boolean drawingUI)
+	{
+		if (renderable instanceof NPC)
+		{
+			NPC npc = (NPC) renderable;
+			FakeNPC fakeNPC = fakeNpcs.get(npc.getIndex());
+			if (fakeNPC != null)
+			{
+				//Don't draw npc's that have a fakeNPC walking to them
+				return !walking.contains(fakeNPC);
+			}
+		}
+		return true;
 	}
 
 	@Provides
