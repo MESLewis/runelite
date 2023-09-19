@@ -12,6 +12,7 @@ import net.runelite.api.GameState;
 import net.runelite.api.NPC;
 import net.runelite.api.Renderable;
 import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.events.GameTick;
 import net.runelite.api.events.NpcDespawned;
 import net.runelite.api.events.NpcSpawned;
 import net.runelite.api.events.PostClientTick;
@@ -83,7 +84,7 @@ public class ExtendedNPCsPlugin extends Plugin
 	@Subscribe
 	public void onNpcDespawned(NpcDespawned eventNpc)
 	{
-//		if(!eventNpc.getNpc().getName().equals("Hans")) {
+//		if(!eventNpc.getNpc().getName().equals("Lumbridge Guide")) {
 //			return;
 //		}
 
@@ -110,6 +111,15 @@ public class ExtendedNPCsPlugin extends Plugin
 		{
 			FakeNPC fakeNPC = fakeNpcs.get(npcId);
 			fakeNPC.lerpToAndHide(eventNpc.getNpc());
+		}
+	}
+
+	@Subscribe
+	public void onGameTick(GameTick tick)
+	{
+		for (FakeNPC npc : fakeNpcs.values())
+		{
+			npc.processGameTick();
 		}
 	}
 
