@@ -1,5 +1,6 @@
 package net.runelite.client.plugins.extendednpcloading;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.inject.Provides;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -10,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.NPC;
+import net.runelite.api.NpcID;
 import net.runelite.api.Renderable;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
@@ -44,6 +46,32 @@ public class ExtendedNPCsPlugin extends Plugin
 	private Set<FakeNPC> walking = new HashSet<>();
 	private Set<FakeNPC> walkingToRemove = new HashSet<>();
 
+	private static final Set<Integer> IGNORED_NPCS = ImmutableSet.of(
+			NpcID.BEE_KEEPER_6747,
+			NpcID.CAPT_ARNAV,
+			NpcID.DR_JEKYLL, NpcID.DR_JEKYLL_314,
+			NpcID.DRUNKEN_DWARF,
+			NpcID.DUNCE_6749,
+			NpcID.EVIL_BOB, NpcID.EVIL_BOB_6754,
+			NpcID.FLIPPA_6744,
+			NpcID.FREAKY_FORESTER_6748,
+			NpcID.FROG_5429, NpcID.FROG_5430, NpcID.FROG_5431, NpcID.FROG_5432, NpcID.FROG, NpcID.FROG_PRINCE, NpcID.FROG_PRINCESS,
+			NpcID.GENIE, NpcID.GENIE_327,
+			NpcID.GILES, NpcID.GILES_5441,
+			NpcID.LEO_6746,
+			NpcID.MILES, NpcID.MILES_5440,
+			NpcID.MYSTERIOUS_OLD_MAN_6750, NpcID.MYSTERIOUS_OLD_MAN_6751,
+			NpcID.MYSTERIOUS_OLD_MAN_6752, NpcID.MYSTERIOUS_OLD_MAN_6753,
+			NpcID.NILES, NpcID.NILES_5439,
+			NpcID.PILLORY_GUARD,
+			NpcID.POSTIE_PETE_6738,
+			NpcID.QUIZ_MASTER_6755,
+			NpcID.RICK_TURPENTINE, NpcID.RICK_TURPENTINE_376,
+			NpcID.SANDWICH_LADY,
+			NpcID.SERGEANT_DAMIEN_6743,
+			NpcID.STRANGE_PLANT,
+			324//teleport animation cow
+	);
 	private final Hooks.RenderableDrawListener drawListener = this::shouldDraw;
 
 	@Override
@@ -84,12 +112,14 @@ public class ExtendedNPCsPlugin extends Plugin
 	@Subscribe
 	public void onNpcDespawned(NpcDespawned eventNpc)
 	{
-//		if(!eventNpc.getNpc().getName().equals("Lumbridge Guide")) {
-//			return;
-//		}
-
 		NPC npc = eventNpc.getNpc();
 		int npcId = eventNpc.getNpc().getIndex();
+
+		if(npc.isDead() || npc.getComposition().isFollower() || IGNORED_NPCS.contains(npcId))
+		{
+			return;
+		}
+
 		FakeNPC fakeNpc;
 		if (fakeNpcs.containsKey(npcId))
 		{
