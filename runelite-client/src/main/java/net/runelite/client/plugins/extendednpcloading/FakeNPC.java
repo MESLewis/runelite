@@ -20,6 +20,8 @@ public class FakeNPC
 	private int idlePoseAnimation;
 	private int walkAnimation;
 	private int orientation;
+	private boolean isAttackable;
+	private boolean shouldRun;
 	private NPCComposition composition;
 	private RuneLiteObject rlobj;
 	private WorldPoint worldPoint;
@@ -35,6 +37,7 @@ public class FakeNPC
 		idlePoseAnimation = npc.getIdlePoseAnimation();
 		walkAnimation = npc.getWalkAnimation();
 		orientation = npc.getOrientation();
+		isAttackable = npc.getCombatLevel() > 0;
 		realNPC = npc;
 		copyNPC();
 	}
@@ -72,6 +75,16 @@ public class FakeNPC
 				mData = mData.recolor(colorsToReplace[i], colorsToReplaceWith[i]);
 			}
 		}
+		//desaturate attackable npcs
+		if(isAttackable)
+		{
+			for (int i = 0; i < mData.getFaceColors().length; i++)
+			{
+				// The game uses bitpacked HSL where bit 8-10 control the saturation(HHHHHHSSSLLLLLLL)
+				// 64639 is bitmask 1111110001111111 which will completely desaturate a color
+				mData.recolor(mData.getFaceColors()[i], (short) (mData.getFaceColors()[i] & 64639));
+			}
+		}
 
 		if (composition.getWidthScale() != 128 || composition.getHeightScale() != 128)
 		{
@@ -92,7 +105,17 @@ public class FakeNPC
 
 	public void lerpToAndHide(NPC spawnedNPC)
 	{
-		//TODO probably skip lerp if distance is like > 10 tiles?
+		if(worldPoint.distanceTo(spawnedNPC.getWorldLocation()) > 10)
+		{
+			this.shouldRun = true;
+		}
+		//skip lerping if the target can be attacked
+		if(isAttackable)
+		{
+			this.worldPoint = spawnedNPC.getWorldLocation();
+			this.rlobj.setLocation(spawnedNPC.getLocalLocation(), client.getPlane());
+			this.rlobj.setOrientation(spawnedNPC.getOrientation());
+		}
 		this.realNPC = spawnedNPC;
 		rlobj.setAnimation(client.loadAnimation(walkAnimation));
 		rlobj.setShouldLoop(true);
@@ -126,15 +149,17 @@ public class FakeNPC
 		}
 		LocalPoint curLocation = rlobj.getLocation();
 		final int movementDelta = 7;
+		//Speed up the lerp by 2x if the distance is over 10 tiles
+		final int movementSpeed = this.shouldRun ? -2 : -1;
 		int dx = Math.min(movementDelta, Math.abs(curLocation.getX() - walkingDestination.getX()));
 		int dy = Math.min(movementDelta, Math.abs(curLocation.getY() - walkingDestination.getY()));
 		if (curLocation.getX() > walkingDestination.getX())
 		{
-			dx *= -1;
+			dx *= movementSpeed;
 		}
 		if (curLocation.getY() > walkingDestination.getY())
 		{
-			dy *= -1;
+			dy *= movementSpeed;
 		}
 
 		int newX = curLocation.getX() + dx;
