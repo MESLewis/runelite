@@ -15,6 +15,7 @@ import net.runelite.api.NpcID;
 import net.runelite.api.Renderable;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.MenuOpened;
 import net.runelite.api.events.NpcDespawned;
 import net.runelite.api.events.NpcSpawned;
 import net.runelite.api.events.PostClientTick;
@@ -162,6 +163,21 @@ public class ExtendedNPCsPlugin extends Plugin
 		}
 		walking.removeAll(walkingToRemove);
 		walkingToRemove.clear();
+	}
+
+	@Subscribe
+	public void onMenuOpened(MenuOpened event)
+	{
+		for (FakeNPC npc : fakeNpcs.values())
+		{
+			if(npc.getRlobj().isActive() && npc.isMouseOverObject())
+			{
+				client.createMenuEntry(0)
+						.setOption("Examine")
+						.setTarget("<col=FFFFFF>Fake npc</col>")
+						.onClick(npc::examine);
+			}
+		}
 	}
 
 	void addWalking(FakeNPC npc)
