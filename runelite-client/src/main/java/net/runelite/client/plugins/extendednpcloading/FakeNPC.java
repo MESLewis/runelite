@@ -4,7 +4,6 @@ import net.runelite.api.Client;
 import java.awt.Shape;
 import lombok.Getter;
 import net.runelite.api.ChatMessageType;
-import net.runelite.api.Client;
 import net.runelite.api.MenuEntry;
 import net.runelite.api.Model;
 import net.runelite.api.ModelData;
@@ -85,13 +84,15 @@ public class FakeNPC
 			}
 		}
 		//desaturate attackable npcs
-		if(isAttackable)
+		if (isAttackable)
 		{
+			mData.cloneColors();
 			for (int i = 0; i < mData.getFaceColors().length; i++)
 			{
 				// The game uses bitpacked HSL where bit 8-10 control the saturation(HHHHHHSSSLLLLLLL)
 				// 64639 is bitmask 1111110001111111 which will completely desaturate a color
-				mData.recolor(mData.getFaceColors()[i], (short) (mData.getFaceColors()[i] & 64639));
+				// 65023 is bitmask 1111110111111111 which will ~half desaturate a color
+				mData.recolor(mData.getFaceColors()[i], (short) (mData.getFaceColors()[i] & 65023));
 			}
 		}
 
@@ -114,16 +115,19 @@ public class FakeNPC
 
 	public void lerpToAndHide(NPC spawnedNPC)
 	{
-		if(worldPoint.distanceTo(spawnedNPC.getWorldLocation()) > 10)
-		{
-			this.shouldRun = true;
-		}
-		//skip lerping if the target can be attacked
-		if(isAttackable)
+		//Skip lerping if distance between is too great
+		//TODO config option for this between skip lerp/run
+		if (worldPoint.distanceTo(spawnedNPC.getWorldLocation()) > 10)
 		{
 			this.worldPoint = spawnedNPC.getWorldLocation();
 			this.rlobj.setLocation(spawnedNPC.getLocalLocation(), client.getPlane());
 			this.rlobj.setOrientation(spawnedNPC.getOrientation());
+			return;
+		}
+		//TODO config option for this between skip lerp/run
+		if (isAttackable)
+		{
+			this.shouldRun = true;
 		}
 		this.realNPC = spawnedNPC;
 		rlobj.setAnimation(client.loadAnimation(walkAnimation));
@@ -157,18 +161,18 @@ public class FakeNPC
 			walkingDestination = realNPC.getLocalLocation();
 		}
 		LocalPoint curLocation = rlobj.getLocation();
-		final int movementDelta = 7;
+
 		//Speed up the lerp by 2x if the distance is over 10 tiles
-		final int movementSpeed = this.shouldRun ? -2 : -1;
+		final int movementDelta = (int) (5 * (this.shouldRun ? 1.5 : 1));
 		int dx = Math.min(movementDelta, Math.abs(curLocation.getX() - walkingDestination.getX()));
 		int dy = Math.min(movementDelta, Math.abs(curLocation.getY() - walkingDestination.getY()));
 		if (curLocation.getX() > walkingDestination.getX())
 		{
-			dx *= movementSpeed;
+			dx *= -1;
 		}
 		if (curLocation.getY() > walkingDestination.getY())
 		{
-			dy *= movementSpeed;
+			dy *= -1;
 		}
 
 		int newX = curLocation.getX() + dx;
@@ -260,21 +264,22 @@ public class FakeNPC
 
 	public boolean isMouseOverObject()
 	{
-		if(rlobj.getModel() == null || LocalPoint.fromWorld(client, worldPoint) == null)
+		if (rlobj.getModel() == null || LocalPoint.fromWorld(client, worldPoint) == null)
 		{
 			return false;
 		}
 		Point p = client.getMouseCanvasPosition();
 		Shape clickbox = Perspective.getClickbox(client, rlobj.getModel(), rlobj.getOrientation(), LocalPoint.fromWorld(client, worldPoint).getX(), LocalPoint.fromWorld(client, worldPoint).getY(),
 					Perspective.getTileHeight(client, LocalPoint.fromWorld(client, worldPoint), worldPoint.getPlane()));
-		if(clickbox != null)
+		if (clickbox != null)
 		{
 			return clickbox.contains(p.getX(), p.getY());
 		}
 		return false;
 	}
 
-	public void examine(MenuEntry menuEntry) {
+	public void examine(MenuEntry menuEntry)
+	{
 		client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", EXAMINE_TEXT, null);
 	}
 }

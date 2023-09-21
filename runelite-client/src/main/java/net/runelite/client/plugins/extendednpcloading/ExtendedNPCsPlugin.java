@@ -116,7 +116,7 @@ public class ExtendedNPCsPlugin extends Plugin
 		NPC npc = eventNpc.getNpc();
 		int npcId = eventNpc.getNpc().getIndex();
 
-		if(npc.isDead() || npc.getComposition().isFollower() || IGNORED_NPCS.contains(npcId))
+		if (npc.isDead() || npc.getComposition().isFollower() || IGNORED_NPCS.contains(npcId))
 		{
 			return;
 		}
@@ -170,7 +170,7 @@ public class ExtendedNPCsPlugin extends Plugin
 	{
 		for (FakeNPC npc : fakeNpcs.values())
 		{
-			if(npc.getRlobj().isActive() && npc.isMouseOverObject())
+			if (npc.getRlobj().isActive() && npc.isMouseOverObject())
 			{
 				client.createMenuEntry(0)
 						.setOption("Examine")
