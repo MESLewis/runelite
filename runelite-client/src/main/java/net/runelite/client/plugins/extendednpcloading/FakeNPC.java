@@ -17,21 +17,27 @@ import net.runelite.api.coords.WorldPoint;
 
 /**
  * Max distance between a real NPC and the player is 15 tiles.
+ *
+ * TODO explicit modes/status. Do we know the NPC index? Do we have a realNPC?
+ * TODO Are we walking to a realNPC?
  */
 public class FakeNPC
 {
 	private Client client;
 	private ExtendedNPCsPlugin plugin;
 	private int idlePoseAnimation = -1;
-	private int walkAnimation = -1;
+	private int walkAnimation = 1;
 	private int orientation = 0;
+	@Getter
+	private int npcIndex = -1;
 	private boolean isAttackable;
 	private boolean shouldRun;
 	@Getter
 	private NPCComposition composition;
 	@Getter
 	private RuneLiteObject rlobj;
-	private WorldPoint worldPoint;
+	//Saved as we go because the scene can become null at any time
+	private WorldPoint curLocationWorldPoint;
 	private NPC realNPC = null;
 	private LocalPoint walkingDestination;
 	private String EXAMINE_TEXT = "Totally real npc";
@@ -42,7 +48,7 @@ public class FakeNPC
 		this.plugin = plugin;
 		realNPC = npc;
 		extractNPCData(npc);
-		copyNPC();
+		copyNPC(true);
 	}
 
 	public FakeNPC(ExtendedNPCsPlugin plugin, Client client, NPCSpawnDefinition spawnDefinition)
@@ -50,7 +56,7 @@ public class FakeNPC
 		this.client = client;
 		this.plugin = plugin;
 		composition = client.getNpcDefinition(spawnDefinition.getId());
-		copyNPC();
+		copyNPC(true);
 	}
 
 	/**
@@ -60,6 +66,7 @@ public class FakeNPC
 	 */
 	private void extractNPCData(NPC npc)
 	{
+		npcIndex = npc.getIndex();
 		composition = npc.getTransformedComposition();
 		idlePoseAnimation = npc.getIdlePoseAnimation();
 		walkAnimation = npc.getWalkAnimation();
@@ -67,25 +74,35 @@ public class FakeNPC
 		isAttackable = npc.getCombatLevel() > 0;
 	}
 
+	public boolean isInScene()
+	{
+		return curLocationWorldPoint.isInScene(client);
+	}
+
 	public void recreate()
 	{
-		if (worldPoint == null)
+		if (curLocationWorldPoint == null)
 		{
 			return;
 		}
 		//TODO doesn't work for extended scene
-		LocalPoint newLocal = LocalPoint.fromWorld(client, worldPoint);
+		LocalPoint newLocal = LocalPoint.fromWorld(client, curLocationWorldPoint);
 		if (newLocal != null)
 		{
-			copyNPC();
-			rlobj.setLocation(newLocal, client.getPlane());
+			this.realNPC = this.npcIndex >= 0 ? client.getCachedNPCs()[this.npcIndex] : null;
+			copyNPC(rlobj.isActive());
+			this.setLocation(newLocal);
 		}
 	}
 
-	private void copyNPC()
+	private void copyNPC(boolean active)
 	{
-		rlobj = client.createRuneLiteObject();
+		if (rlobj != null)
+		{
+			rlobj.setActive(false);
+		}
 
+		rlobj = client.createRuneLiteObject();
 		int[] modelIds = composition.getModels();
 		if (modelIds == null)
 		{
@@ -131,11 +148,14 @@ public class FakeNPC
 		rlobj.setModel(model);
 
 		int animation = idlePoseAnimation;
-		rlobj.setAnimation(client.loadAnimation(animation));
-		rlobj.setShouldLoop(true);
+		if (animation >= 0)
+		{
+			rlobj.setAnimation(client.loadAnimation(animation));
+			rlobj.setShouldLoop(true);
+		}
 		//TODO I think we need to use the rotate before lighting sometimes
 		rlobj.setOrientation(orientation);
-		rlobj.setActive(true);
+		rlobj.setActive(active);
 	}
 
 	public void lerpToAndHide(NPC spawnedNPC)
@@ -144,11 +164,11 @@ public class FakeNPC
 		this.realNPC = spawnedNPC;
 		//Skip lerping if distance between is too great
 		//TODO config option for this between skip lerp/run
-		if (worldPoint.distanceTo(spawnedNPC.getWorldLocation()) > 10)
+		if (curLocationWorldPoint.distanceTo(spawnedNPC.getWorldLocation()) > 10)
 		{
-			this.worldPoint = spawnedNPC.getWorldLocation();
-			this.rlobj.setLocation(spawnedNPC.getLocalLocation(), client.getPlane());
+			this.setLocation(spawnedNPC.getLocalLocation());
 			this.rlobj.setOrientation(spawnedNPC.getOrientation());
+			this.rlobj.setActive(false);
 			return;
 		}
 		//TODO config option for this between skip lerp/run
@@ -156,8 +176,11 @@ public class FakeNPC
 		{
 			this.shouldRun = true;
 		}
-		rlobj.setAnimation(client.loadAnimation(walkAnimation));
-		rlobj.setShouldLoop(true);
+		if (walkAnimation >= 0)
+		{
+			rlobj.setAnimation(client.loadAnimation(walkAnimation));
+			rlobj.setShouldLoop(true);
+		}
 		plugin.addWalking(this);
 	}
 
@@ -165,9 +188,12 @@ public class FakeNPC
 	{
 		extractNPCData(despawnedNPC);
 		this.realNPC = null;
-		rlobj.setLocation(despawnedNPC.getLocalLocation(), client.getPlane());
-		worldPoint = WorldPoint.fromLocal(client, rlobj.getLocation());
-		rlobj.setAnimation(client.loadAnimation(idlePoseAnimation));
+		this.setLocation(despawnedNPC.getLocalLocation());
+		if (idlePoseAnimation >= 0)
+		{
+			rlobj.setAnimation(client.loadAnimation(idlePoseAnimation));
+			rlobj.setShouldLoop(true);
+		}
 		rlobj.setOrientation(despawnedNPC.getOrientation());
 		rlobj.setActive(true);
 	}
@@ -176,17 +202,19 @@ public class FakeNPC
 	public void jumpToAndShow(NPCSpawnDefinition spawnDef)
 	{
 		this.realNPC = null;
+		this.composition = client.getNpcDefinition(spawnDef.getId());
 		LocalPoint localPoint = LocalPoint.fromWorld(client, spawnDef.getX(), spawnDef.getY());
 		if (localPoint == null)
 		{
 			return;
 		}
 		//TODO deal with other z planes
-		rlobj.setLocation(localPoint, client.getPlane());
-		worldPoint = WorldPoint.fromLocal(client, rlobj.getLocation());
-		rlobj.setAnimation(client.loadAnimation(idlePoseAnimation));
-		//TODO orientation worth including in file?
-		rlobj.setOrientation(0);
+		this.setLocation(localPoint);
+		if (idlePoseAnimation >= 0)
+		{
+			rlobj.setAnimation(client.loadAnimation(idlePoseAnimation));
+			rlobj.setShouldLoop(true);
+		}
 		rlobj.setActive(true);
 	}
 
@@ -208,7 +236,7 @@ public class FakeNPC
 		LocalPoint curLocation = rlobj.getLocation();
 
 		//Speed up the lerp by 2x if the distance is over 10 tiles
-		final int movementDelta = (int) (5 * (this.shouldRun ? 1.5 : 1));
+		final int movementDelta = (int) (7 * (this.shouldRun ? 1.5 : 1));
 		int dx = Math.min(movementDelta, Math.abs(curLocation.getX() - walkingDestination.getX()));
 		int dy = Math.min(movementDelta, Math.abs(curLocation.getY() - walkingDestination.getY()));
 		if (curLocation.getX() > walkingDestination.getX())
@@ -222,7 +250,7 @@ public class FakeNPC
 
 		int newX = curLocation.getX() + dx;
 		int newY = curLocation.getY() + dy;
-		rlobj.setLocation(new LocalPoint(newX, newY), client.getPlane());
+		this.setLocation(newX, newY);
 
 		final int orientationDelta = 50;
 		int orientationDestination = rlobj.getOrientation();
@@ -263,6 +291,11 @@ public class FakeNPC
 	 */
 	public void processGameTick()
 	{
+		//Check every tick because the npc spawned events are weird on map load
+		if (this.npcIndex >= 0)
+		{
+			this.realNPC = client.getCachedNPCs()[this.npcIndex];
+		}
 		if (rlobj.isActive() && this.realNPC == null)
 		{
 			LocalPoint playerLocation = client.getLocalPlayer().getLocalLocation();
@@ -300,22 +333,34 @@ public class FakeNPC
 				}
 				int newX = curLocation.getX() + dx;
 				int newY = curLocation.getY() + dy;
+				//TODO if walking a total of X away from original location, just despawn
 				walkingDestination = new LocalPoint(newX, newY);
 				plugin.addWalking(this);
 			}
-
+		}
+		if (rlobj.isActive() && this.realNPC != null)
+		{
+			if (rlobj.getLocation().distanceTo(realNPC.getLocalLocation()) < 1)
+			{
+				rlobj.setActive(false);
+			}
+			else
+			{
+				walkingDestination = realNPC.getLocalLocation();
+				plugin.addWalking(this);
+			}
 		}
 	}
 
 	public boolean isMouseOverObject()
 	{
-		if (rlobj.getModel() == null || LocalPoint.fromWorld(client, worldPoint) == null)
+		if (rlobj.getModel() == null || LocalPoint.fromWorld(client, curLocationWorldPoint) == null)
 		{
 			return false;
 		}
 		Point p = client.getMouseCanvasPosition();
-		Shape clickbox = Perspective.getClickbox(client, rlobj.getModel(), rlobj.getOrientation(), LocalPoint.fromWorld(client, worldPoint).getX(), LocalPoint.fromWorld(client, worldPoint).getY(),
-					Perspective.getTileHeight(client, LocalPoint.fromWorld(client, worldPoint), worldPoint.getPlane()));
+		Shape clickbox = Perspective.getClickbox(client, rlobj.getModel(), rlobj.getOrientation(), LocalPoint.fromWorld(client, curLocationWorldPoint).getX(), LocalPoint.fromWorld(client, curLocationWorldPoint).getY(),
+					Perspective.getTileHeight(client, LocalPoint.fromWorld(client, curLocationWorldPoint), curLocationWorldPoint.getPlane()));
 		if (clickbox != null)
 		{
 			return clickbox.contains(p.getX(), p.getY());
@@ -325,6 +370,21 @@ public class FakeNPC
 
 	public void examine(MenuEntry menuEntry)
 	{
-		client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", EXAMINE_TEXT, null);
+		client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "Name: " + this.composition.getName() + " Index: " + this.npcIndex, null);
+		if (this.realNPC != null)
+		{
+			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "RealNPC: " + this.realNPC.getName(), null);
+		}
+	}
+
+	private void setLocation(int x, int y)
+	{
+		this.setLocation(new LocalPoint(x, y));
+	}
+
+	private void setLocation(LocalPoint localPoint)
+	{
+		rlobj.setLocation(localPoint, client.getPlane());
+		curLocationWorldPoint = WorldPoint.fromLocal(client, localPoint);
 	}
 }
