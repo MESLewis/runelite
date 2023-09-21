@@ -1,10 +1,17 @@
 package net.runelite.client.plugins.extendednpcloading;
 
 import net.runelite.api.Client;
+import java.awt.Shape;
+import lombok.Getter;
+import net.runelite.api.ChatMessageType;
+import net.runelite.api.Client;
+import net.runelite.api.MenuEntry;
 import net.runelite.api.Model;
 import net.runelite.api.ModelData;
 import net.runelite.api.NPC;
 import net.runelite.api.NPCComposition;
+import net.runelite.api.Perspective;
+import net.runelite.api.Point;
 import net.runelite.api.RuneLiteObject;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
@@ -23,10 +30,12 @@ public class FakeNPC
 	private boolean isAttackable;
 	private boolean shouldRun;
 	private NPCComposition composition;
+	@Getter
 	private RuneLiteObject rlobj;
 	private WorldPoint worldPoint;
 	private NPC realNPC;
 	private LocalPoint walkingDestination;
+	private String EXAMINE_TEXT = "Totally real npc";
 
 	public FakeNPC(ExtendedNPCsPlugin plugin, Client client, NPC npc)
 	{
@@ -247,5 +256,25 @@ public class FakeNPC
 			}
 
 		}
+	}
+
+	public boolean isMouseOverObject()
+	{
+		if(rlobj.getModel() == null || LocalPoint.fromWorld(client, worldPoint) == null)
+		{
+			return false;
+		}
+		Point p = client.getMouseCanvasPosition();
+		Shape clickbox = Perspective.getClickbox(client, rlobj.getModel(), rlobj.getOrientation(), LocalPoint.fromWorld(client, worldPoint).getX(), LocalPoint.fromWorld(client, worldPoint).getY(),
+					Perspective.getTileHeight(client, LocalPoint.fromWorld(client, worldPoint), worldPoint.getPlane()));
+		if(clickbox != null)
+		{
+			return clickbox.contains(p.getX(), p.getY());
+		}
+		return false;
+	}
+
+	public void examine(MenuEntry menuEntry) {
+		client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", EXAMINE_TEXT, null);
 	}
 }
