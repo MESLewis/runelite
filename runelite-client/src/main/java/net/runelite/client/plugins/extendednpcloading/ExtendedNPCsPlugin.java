@@ -1,9 +1,17 @@
 package net.runelite.client.plugins.extendednpcloading;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import com.google.inject.Provides;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.inject.Inject;
@@ -13,6 +21,7 @@ import net.runelite.api.GameState;
 import net.runelite.api.NPC;
 import net.runelite.api.NpcID;
 import net.runelite.api.Renderable;
+import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.MenuOpened;
@@ -32,6 +41,38 @@ import net.runelite.client.plugins.PluginDescriptor;
 )
 public class ExtendedNPCsPlugin extends Plugin
 {
+	private static final Map<Integer, Collection<NPCSpawnDefinition>> SPAWNS = new HashMap<>();
+
+	static
+	{
+		//Load spawn file
+		try (InputStream in = ExtendedNPCsPlugin.class.getResourceAsStream("npc-spawns.json"))
+		{
+			// npcid, wander range, x, y, level(plane)
+			// CHECKSTYLE:OFF
+			final TypeToken<Collection<NPCSpawnDefinition>> typeToken = new TypeToken<>()
+			{
+			};
+			// CHECKSTYLE:ON
+			List<NPCSpawnDefinition> spawnDefinitionList = new Gson().fromJson(new InputStreamReader(in), typeToken.getType());
+
+			//Put into buckets by region
+			for (NPCSpawnDefinition def : spawnDefinitionList)
+			{
+				WorldPoint loc = new WorldPoint(def.getX(), def.getY(), def.getLevel());
+				int regionId = loc.getRegionID();
+
+				Collection<NPCSpawnDefinition> regionSpawns = SPAWNS.getOrDefault(regionId, new HashSet<>());
+				regionSpawns.add(def);
+				SPAWNS.putIfAbsent(regionId, regionSpawns);
+			}
+		}
+		catch (IOException ex)
+		{
+			throw new RuntimeException(ex);
+		}
+	}
+
 	@Inject
 	private Client client;
 	@Inject
@@ -42,7 +83,7 @@ public class ExtendedNPCsPlugin extends Plugin
 	@Inject
 	private ExtendedNPCsConfig config;
 	//Contains every FakeNPC
-	private Map<Integer, FakeNPC> fakeNpcs = new HashMap<>();
+	private Collection<FakeNPC> fakeNpcs = new ArrayList<>();
 	//Subset of FakeNPC that need to have their position updated
 	private Set<FakeNPC> walking = new HashSet<>();
 	private Set<FakeNPC> walkingToRemove = new HashSet<>();
@@ -87,7 +128,7 @@ public class ExtendedNPCsPlugin extends Plugin
 		hooks.unregisterRenderableDrawListener(drawListener);
 		clientThread.invokeLater(() ->
 		{
-			for (FakeNPC npc : fakeNpcs.values())
+			for (FakeNPC npc : fakeNpcs)
 			{
 				npc.shutDown();
 			}
@@ -102,9 +143,22 @@ public class ExtendedNPCsPlugin extends Plugin
 		{
 			//Respawn all the visible fake npcs after map loading
 			//TODO the mapping of npcIndex breaks after scene change
-			for (Map.Entry<Integer, FakeNPC> entry : fakeNpcs.entrySet())
+			for (FakeNPC fakeNPC : fakeNpcs)
 			{
-				entry.getValue().recreate();
+				fakeNPC.recreate();
+			}
+
+			int[] loadedRegions = client.getMapRegions();
+			for (int regionId : loadedRegions)
+			{
+				Collection<NPCSpawnDefinition> regionSpawns = SPAWNS.get(regionId);
+				for (NPCSpawnDefinition def : regionSpawns)
+				{
+					//TODO something to not duplicate
+					FakeNPC fakeNPC = new FakeNPC(this, client, def);
+					fakeNpcs.add(fakeNPC);
+					fakeNPC.jumpToAndShow(def);
+				}
 			}
 		}
 	}
@@ -122,33 +176,36 @@ public class ExtendedNPCsPlugin extends Plugin
 		}
 
 		FakeNPC fakeNpc;
-		if (fakeNpcs.containsKey(npcId))
-		{
-			fakeNpc = fakeNpcs.get(npcId);
-		}
-		else
-		{
-			fakeNpc = new FakeNPC(this, client, npc);
-			fakeNpcs.put(npcId, fakeNpc);
-		}
-		fakeNpc.jumpToAndShow(npc);
+		//TODO try and match with correct id or closest fakenpc
+//		if (fakeNpcs.containsKey(npcId))
+//		{
+//			fakeNpc = fakeNpcs.get(npcId);
+//		}
+//		else
+//		{
+		//TODO DEBUG: Just turning this off to test static loading
+//			fakeNpc = new FakeNPC(this, client, npc);
+//			fakeNpcs.add(fakeNpc);
+//		}
+//		fakeNpc.jumpToAndShow(npc);
 	}
 
 	@Subscribe
 	public void onNpcSpawned(NpcSpawned eventNpc)
 	{
-		int npcId = eventNpc.getNpc().getIndex();
-		if (fakeNpcs.containsKey(npcId))
-		{
-			FakeNPC fakeNPC = fakeNpcs.get(npcId);
-			fakeNPC.lerpToAndHide(eventNpc.getNpc());
-		}
+		//TODO match correct id or closest fake
+//		int npcId = eventNpc.getNpc().getIndex();
+//		if (fakeNpcs.containsKey(npcId))
+//		{
+//			FakeNPC fakeNPC = fakeNpcs.get(npcId);
+//			fakeNPC.lerpToAndHide(eventNpc.getNpc());
+//		}
 	}
 
 	@Subscribe
 	public void onGameTick(GameTick tick)
 	{
-		for (FakeNPC npc : fakeNpcs.values())
+		for (FakeNPC npc : fakeNpcs)
 		{
 			npc.processGameTick();
 		}
@@ -168,7 +225,7 @@ public class ExtendedNPCsPlugin extends Plugin
 	@Subscribe
 	public void onMenuOpened(MenuOpened event)
 	{
-		for (FakeNPC npc : fakeNpcs.values())
+		for (FakeNPC npc : fakeNpcs)
 		{
 			if (npc.getRlobj().isActive() && npc.isMouseOverObject())
 			{
@@ -192,16 +249,17 @@ public class ExtendedNPCsPlugin extends Plugin
 
 	boolean shouldDraw(Renderable renderable, boolean drawingUI)
 	{
-		if (renderable instanceof NPC)
-		{
-			NPC npc = (NPC) renderable;
-			FakeNPC fakeNPC = fakeNpcs.get(npc.getIndex());
-			if (fakeNPC != null)
-			{
-				//Don't draw npc's that have a fakeNPC walking to them
-				return !walking.contains(fakeNPC);
-			}
-		}
+		//TODO fix this
+//		if (renderable instanceof NPC)
+//		{
+//			NPC npc = (NPC) renderable;
+//			FakeNPC fakeNPC = fakeNpcs.get(npc.getIndex());
+//			if (fakeNPC != null)
+//			{
+//				//Don't draw npc's that have a fakeNPC walking to them
+//				return !walking.contains(fakeNPC);
+//			}
+//		}
 		return true;
 	}
 

@@ -22,17 +22,17 @@ public class FakeNPC
 {
 	private Client client;
 	private ExtendedNPCsPlugin plugin;
-	private int npcIndex;
-	private int idlePoseAnimation;
-	private int walkAnimation;
-	private int orientation;
+	private int npcIndex = -1;
+	private int idlePoseAnimation = -1;
+	private int walkAnimation = -1;
+	private int orientation = 0;
 	private boolean isAttackable;
 	private boolean shouldRun;
 	private NPCComposition composition;
 	@Getter
 	private RuneLiteObject rlobj;
 	private WorldPoint worldPoint;
-	private NPC realNPC;
+	private NPC realNPC = null;
 	private LocalPoint walkingDestination;
 	private String EXAMINE_TEXT = "Totally real npc";
 
@@ -50,8 +50,20 @@ public class FakeNPC
 		copyNPC();
 	}
 
+	public FakeNPC(ExtendedNPCsPlugin plugin, Client client, NPCSpawnDefinition spawnDefinition)
+	{
+		this.client = client;
+		this.plugin = plugin;
+		composition = client.getNpcDefinition(spawnDefinition.getId());
+		copyNPC();
+	}
+
 	public void recreate()
 	{
+		if (worldPoint == null)
+		{
+			return;
+		}
 		//TODO doesn't work for extended scene
 		LocalPoint newLocal = LocalPoint.fromWorld(client, worldPoint);
 		if (newLocal != null)
@@ -66,6 +78,10 @@ public class FakeNPC
 		rlobj = client.createRuneLiteObject();
 
 		int[] modelIds = composition.getModels();
+		if (modelIds == null)
+		{
+			return;
+		}
 		ModelData[] mDatas = new ModelData[modelIds.length];
 		for (int i = 0; i < modelIds.length; i++)
 		{
@@ -142,6 +158,24 @@ public class FakeNPC
 		worldPoint = WorldPoint.fromLocal(client, rlobj.getLocation());
 		rlobj.setAnimation(client.loadAnimation(idlePoseAnimation));
 		rlobj.setOrientation(despawnedNPC.getOrientation());
+		rlobj.setActive(true);
+	}
+
+	//TODO clean up logic here, do we just always want to call this from constructor?
+	public void jumpToAndShow(NPCSpawnDefinition spawnDef)
+	{
+		this.realNPC = null;
+		LocalPoint localPoint = LocalPoint.fromWorld(client, spawnDef.getX(), spawnDef.getY());
+		if (localPoint == null)
+		{
+			return;
+		}
+		//TODO deal with other z planes
+		rlobj.setLocation(localPoint, client.getPlane());
+		worldPoint = WorldPoint.fromLocal(client, rlobj.getLocation());
+		rlobj.setAnimation(client.loadAnimation(idlePoseAnimation));
+		//TODO orientation worth including in file?
+		rlobj.setOrientation(0);
 		rlobj.setActive(true);
 	}
 
