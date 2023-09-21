@@ -82,10 +82,16 @@ public class ExtendedNPCsPlugin extends Plugin
 
 	@Inject
 	private ExtendedNPCsConfig config;
-	//Contains every FakeNPC
-	private Collection<FakeNPC> fakeNpcs = new ArrayList<>();
+
+	//Combined the staticNPCs and dynamicNPCs are every FakeNPC
+	//FakeNPCs that are spawned on region load
+	private Map<NPCSpawnDefinition, FakeNPC> staticNPCs = new HashMap<>();
+	//FakeNPCs that are spawned from an actual NPC leaving the scene.
+	private Collection<FakeNPC> dynamicNPCs = new ArrayList<>();
 	//Subset of FakeNPC that need to have their position updated
 	private Set<FakeNPC> walking = new HashSet<>();
+	//Mapping of FakeNPC's that are directly tied to an npc that has been seen already this play session
+	private Map<Integer, FakeNPC> seenNPCs = new HashMap<>();
 	private Set<FakeNPC> walkingToRemove = new HashSet<>();
 
 	private static final Set<Integer> IGNORED_NPCS = ImmutableSet.of(
@@ -128,11 +134,19 @@ public class ExtendedNPCsPlugin extends Plugin
 		hooks.unregisterRenderableDrawListener(drawListener);
 		clientThread.invokeLater(() ->
 		{
-			for (FakeNPC npc : fakeNpcs)
+			for (FakeNPC npc : dynamicNPCs)
 			{
 				npc.shutDown();
 			}
-			fakeNpcs.clear();
+			for (FakeNPC npc : staticNPCs.values())
+			{
+				npc.shutDown();
+			}
+			staticNPCs.clear();
+			dynamicNPCs.clear();
+			seenNPCs.clear();
+			walking.clear();
+			walkingToRemove.clear();
 		});
 	}
 
@@ -141,23 +155,50 @@ public class ExtendedNPCsPlugin extends Plugin
 	{
 		if (gameStateChanged.getGameState() == GameState.LOGGED_IN)
 		{
+			//Clear seenNPCs since the id mappings are not valid after loading
+			this.seenNPCs.clear();
 			//Respawn all the visible fake npcs after map loading
-			//TODO the mapping of npcIndex breaks after scene change
-			for (FakeNPC fakeNPC : fakeNpcs)
+			for (FakeNPC fakeNPC : staticNPCs.values())
+			{
+				fakeNPC.recreate();
+			}
+			for (FakeNPC fakeNPC : dynamicNPCs)
 			{
 				fakeNPC.recreate();
 			}
 
+			//TODO clear out staticNPCs or it grows infinitely
 			int[] loadedRegions = client.getMapRegions();
 			for (int regionId : loadedRegions)
 			{
 				Collection<NPCSpawnDefinition> regionSpawns = SPAWNS.get(regionId);
 				for (NPCSpawnDefinition def : regionSpawns)
 				{
-					//TODO something to not duplicate
-					FakeNPC fakeNPC = new FakeNPC(this, client, def);
-					fakeNpcs.add(fakeNPC);
-					fakeNPC.jumpToAndShow(def);
+					if (WorldPoint.isInScene(client, def.getX(), def.getY()) && def.getLevel() == client.getPlane())
+					{
+						FakeNPC fakeNPC = null;
+						if (staticNPCs.containsKey(def))
+						{
+							fakeNPC = staticNPCs.get(def);
+						}
+						else
+						{
+							for (FakeNPC dynamic : dynamicNPCs)
+							{
+								if (dynamic.getComposition() == client.getNpcDefinition(def.getId()))
+								{
+									fakeNPC = dynamic;
+									break;
+								}
+							}
+						}
+						if (fakeNPC == null)
+						{
+							fakeNPC = new FakeNPC(this, client, def);
+							staticNPCs.put(def, fakeNPC);
+						}
+						fakeNPC.jumpToAndShow(def);
+					}
 				}
 			}
 		}
@@ -175,37 +216,67 @@ public class ExtendedNPCsPlugin extends Plugin
 			return;
 		}
 
-		FakeNPC fakeNpc;
-		//TODO try and match with correct id or closest fakenpc
-//		if (fakeNpcs.containsKey(npcId))
-//		{
-//			fakeNpc = fakeNpcs.get(npcId);
-//		}
-//		else
-//		{
-		//TODO DEBUG: Just turning this off to test static loading
-//			fakeNpc = new FakeNPC(this, client, npc);
-//			fakeNpcs.add(fakeNpc);
-//		}
-//		fakeNpc.jumpToAndShow(npc);
+		FakeNPC fakeNpc = null;
+		if (seenNPCs.containsKey(npcId))
+		{
+			fakeNpc = seenNPCs.get(npcId);
+		}
+		else
+		{
+			//Find a matching static npc if possible
+			for (FakeNPC staticFakeNPC : staticNPCs.values())
+			{
+				if (staticFakeNPC.getComposition() == eventNpc.getNpc().getTransformedComposition())
+				{
+					fakeNpc = staticFakeNPC;
+					break;
+				}
+			}
+			if (fakeNpc == null)
+			{
+				fakeNpc = new FakeNPC(this, client, npc);
+				dynamicNPCs.add(fakeNpc);
+			}
+			seenNPCs.put(npcId, fakeNpc);
+		}
+		fakeNpc.jumpToAndShow(npc);
 	}
 
 	@Subscribe
 	public void onNpcSpawned(NpcSpawned eventNpc)
 	{
-		//TODO match correct id or closest fake
-//		int npcId = eventNpc.getNpc().getIndex();
-//		if (fakeNpcs.containsKey(npcId))
-//		{
-//			FakeNPC fakeNPC = fakeNpcs.get(npcId);
-//			fakeNPC.lerpToAndHide(eventNpc.getNpc());
-//		}
+		int npcId = eventNpc.getNpc().getIndex();
+		FakeNPC fakeNpc = null;
+		if (seenNPCs.containsKey(npcId))
+		{
+			fakeNpc = seenNPCs.get(npcId);
+		}
+		else
+		{
+			for (FakeNPC staticFakeNPC : staticNPCs.values())
+			{
+				if (staticFakeNPC.getComposition() == eventNpc.getNpc().getTransformedComposition())
+				{
+					fakeNpc = staticFakeNPC;
+					seenNPCs.put(npcId, fakeNpc);
+					break;
+				}
+			}
+		}
+		if (fakeNpc != null)
+		{
+			fakeNpc.lerpToAndHide(eventNpc.getNpc());
+		}
 	}
 
 	@Subscribe
 	public void onGameTick(GameTick tick)
 	{
-		for (FakeNPC npc : fakeNpcs)
+		for (FakeNPC npc : dynamicNPCs)
+		{
+			npc.processGameTick();
+		}
+		for (FakeNPC npc : staticNPCs.values())
 		{
 			npc.processGameTick();
 		}
@@ -225,7 +296,7 @@ public class ExtendedNPCsPlugin extends Plugin
 	@Subscribe
 	public void onMenuOpened(MenuOpened event)
 	{
-		for (FakeNPC npc : fakeNpcs)
+		for (FakeNPC npc : staticNPCs.values())
 		{
 			if (npc.getRlobj().isActive() && npc.isMouseOverObject())
 			{
@@ -233,6 +304,16 @@ public class ExtendedNPCsPlugin extends Plugin
 						.setOption("Examine")
 						.setTarget("<col=FFFFFF>Fake npc</col>")
 						.onClick(npc::examine);
+			}
+		}
+		for (FakeNPC npc : dynamicNPCs)
+		{
+			if (npc.getRlobj().isActive() && npc.isMouseOverObject())
+			{
+				client.createMenuEntry(0)
+					.setOption("Examine")
+					.setTarget("<col=FFFFFF>Fake npc</col>")
+					.onClick(npc::examine);
 			}
 		}
 	}
@@ -249,17 +330,16 @@ public class ExtendedNPCsPlugin extends Plugin
 
 	boolean shouldDraw(Renderable renderable, boolean drawingUI)
 	{
-		//TODO fix this
-//		if (renderable instanceof NPC)
-//		{
-//			NPC npc = (NPC) renderable;
-//			FakeNPC fakeNPC = fakeNpcs.get(npc.getIndex());
-//			if (fakeNPC != null)
-//			{
-//				//Don't draw npc's that have a fakeNPC walking to them
-//				return !walking.contains(fakeNPC);
-//			}
-//		}
+		if (renderable instanceof NPC)
+		{
+			NPC npc = (NPC) renderable;
+			FakeNPC fakeNPC = seenNPCs.get(npc.getIndex());
+			if (fakeNPC != null)
+			{
+				//Don't draw npc's that have a fakeNPC walking to them
+				return !walking.contains(fakeNPC);
+			}
+		}
 		return true;
 	}
 

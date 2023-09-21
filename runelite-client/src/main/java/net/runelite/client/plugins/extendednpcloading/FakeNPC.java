@@ -22,12 +22,12 @@ public class FakeNPC
 {
 	private Client client;
 	private ExtendedNPCsPlugin plugin;
-	private int npcIndex = -1;
 	private int idlePoseAnimation = -1;
 	private int walkAnimation = -1;
 	private int orientation = 0;
 	private boolean isAttackable;
 	private boolean shouldRun;
+	@Getter
 	private NPCComposition composition;
 	@Getter
 	private RuneLiteObject rlobj;
@@ -40,13 +40,8 @@ public class FakeNPC
 	{
 		this.client = client;
 		this.plugin = plugin;
-		npcIndex = npc.getIndex();
-		composition = npc.getTransformedComposition();
-		idlePoseAnimation = npc.getIdlePoseAnimation();
-		walkAnimation = npc.getWalkAnimation();
-		orientation = npc.getOrientation();
-		isAttackable = npc.getCombatLevel() > 0;
 		realNPC = npc;
+		extractNPCData(npc);
 		copyNPC();
 	}
 
@@ -56,6 +51,20 @@ public class FakeNPC
 		this.plugin = plugin;
 		composition = client.getNpcDefinition(spawnDefinition.getId());
 		copyNPC();
+	}
+
+	/**
+	 * Since we sometimes start from just an NPC definition
+	 * update the data from the real NPC when possible
+	 * @param npc
+	 */
+	private void extractNPCData(NPC npc)
+	{
+		composition = npc.getTransformedComposition();
+		idlePoseAnimation = npc.getIdlePoseAnimation();
+		walkAnimation = npc.getWalkAnimation();
+		orientation = npc.getOrientation();
+		isAttackable = npc.getCombatLevel() > 0;
 	}
 
 	public void recreate()
@@ -131,6 +140,8 @@ public class FakeNPC
 
 	public void lerpToAndHide(NPC spawnedNPC)
 	{
+		extractNPCData(spawnedNPC);
+		this.realNPC = spawnedNPC;
 		//Skip lerping if distance between is too great
 		//TODO config option for this between skip lerp/run
 		if (worldPoint.distanceTo(spawnedNPC.getWorldLocation()) > 10)
@@ -145,7 +156,6 @@ public class FakeNPC
 		{
 			this.shouldRun = true;
 		}
-		this.realNPC = spawnedNPC;
 		rlobj.setAnimation(client.loadAnimation(walkAnimation));
 		rlobj.setShouldLoop(true);
 		plugin.addWalking(this);
@@ -153,6 +163,7 @@ public class FakeNPC
 
 	public void jumpToAndShow(NPC despawnedNPC)
 	{
+		extractNPCData(despawnedNPC);
 		this.realNPC = null;
 		rlobj.setLocation(despawnedNPC.getLocalLocation(), client.getPlane());
 		worldPoint = WorldPoint.fromLocal(client, rlobj.getLocation());
