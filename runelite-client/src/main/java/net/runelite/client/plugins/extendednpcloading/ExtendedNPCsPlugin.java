@@ -18,9 +18,9 @@ import java.util.Set;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
+import net.runelite.api.Constants;
 import net.runelite.api.GameState;
 import net.runelite.api.NPC;
-import net.runelite.api.NpcID;
 import net.runelite.api.Renderable;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.GameStateChanged;
@@ -104,32 +104,6 @@ public class ExtendedNPCsPlugin extends Plugin
 	private Set<FakeNPC> walking = new HashSet<>();
 	private Set<FakeNPC> walkingToRemove = new HashSet<>();
 
-	private static final Set<Integer> IGNORED_NPCS = ImmutableSet.of(
-			NpcID.BEE_KEEPER_6747,
-			NpcID.CAPT_ARNAV,
-			NpcID.DR_JEKYLL, NpcID.DR_JEKYLL_314,
-			NpcID.DRUNKEN_DWARF,
-			NpcID.DUNCE_6749,
-			NpcID.EVIL_BOB, NpcID.EVIL_BOB_6754,
-			NpcID.FLIPPA_6744,
-			NpcID.FREAKY_FORESTER_6748,
-			NpcID.FROG_5429, NpcID.FROG_5430, NpcID.FROG_5431, NpcID.FROG_5432, NpcID.FROG, NpcID.FROG_PRINCE, NpcID.FROG_PRINCESS,
-			NpcID.GENIE, NpcID.GENIE_327,
-			NpcID.GILES, NpcID.GILES_5441,
-			NpcID.LEO_6746,
-			NpcID.MILES, NpcID.MILES_5440,
-			NpcID.MYSTERIOUS_OLD_MAN_6750, NpcID.MYSTERIOUS_OLD_MAN_6751,
-			NpcID.MYSTERIOUS_OLD_MAN_6752, NpcID.MYSTERIOUS_OLD_MAN_6753,
-			NpcID.NILES, NpcID.NILES_5439,
-			NpcID.PILLORY_GUARD,
-			NpcID.POSTIE_PETE_6738,
-			NpcID.QUIZ_MASTER_6755,
-			NpcID.RICK_TURPENTINE, NpcID.RICK_TURPENTINE_376,
-			NpcID.SANDWICH_LADY,
-			NpcID.SERGEANT_DAMIEN_6743,
-			NpcID.STRANGE_PLANT,
-			324//teleport animation cow
-	);
 	private final Hooks.RenderableDrawListener drawListener = this::shouldDraw;
 
 	@Override
@@ -205,6 +179,10 @@ public class ExtendedNPCsPlugin extends Plugin
 
 	private void onAreaLoaded()
 	{
+		if(!isAllowedRegion())
+		{
+			return;
+		}
 		int[] loadedRegions = client.getMapRegions();
 		List<NPC> realNPCs = client.getNpcs();
 		for (int regionId : loadedRegions)
@@ -276,7 +254,7 @@ public class ExtendedNPCsPlugin extends Plugin
 		NPC npc = eventNpc.getNpc();
 		int npcIndex = eventNpc.getNpc().getIndex();
 
-		if (npc.isDead() || npc.getComposition().isFollower() || IGNORED_NPCS.contains(npc.getId()))
+		if (npc.isDead() || npc.getComposition().getName().toLowerCase().equals("null") || npc.getComposition().isFollower() || ExtendedNPCsConstants.IGNORED_NPCS.contains(npc.getId()) || !isAllowedRegion())
 		{
 			return;
 		}
@@ -441,6 +419,13 @@ public class ExtendedNPCsPlugin extends Plugin
 			}
 		}
 		return true;
+	}
+
+	private boolean isAllowedRegion()
+	{
+		boolean isOverWorld = WorldPoint.getMirrorPoint(client.getLocalPlayer().getWorldLocation(), true).getY() < Constants.OVERWORLD_MAX_Y;
+		boolean isWhitelistedRegion = ExtendedNPCsConstants.WHITELISTED_REGIONS.contains( WorldPoint.fromLocalInstance(client, client.getLocalPlayer().getLocalLocation()).getRegionID());
+		return  (isOverWorld || isWhitelistedRegion);
 	}
 
 	@Provides
