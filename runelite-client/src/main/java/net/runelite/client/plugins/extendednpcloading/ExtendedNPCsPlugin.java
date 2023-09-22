@@ -277,27 +277,30 @@ public class ExtendedNPCsPlugin extends Plugin
 	@Subscribe
 	public void onNpcSpawned(NpcSpawned eventNpc)
 	{
-		System.out.printf("Spawn: %s - ", eventNpc.getNpc().getName());
-		int npcIndex = eventNpc.getNpc().getIndex();
-		if (seenNPCs.containsKey(npcIndex))
+		clientThread.invokeAtTickEnd(()->
 		{
-			System.out.printf("Already seen at index: %d\n", npcIndex);
-			FakeNPC fakeNpc = seenNPCs.get(npcIndex);
-			fakeNpc.lerpToAndHide(eventNpc.getNpc());
-		}
-		else
-		{
-			for (FakeNPC staticFakeNPC : staticNPCs.values())
+			System.out.printf("Spawn: %s - ", eventNpc.getNpc().getName());
+			int npcIndex = eventNpc.getNpc().getIndex();
+			if (seenNPCs.containsKey(npcIndex))
 			{
-				if (npcMatch(staticFakeNPC, eventNpc.getNpc()))
+				System.out.printf("Already seen at index: %d\n", npcIndex);
+				FakeNPC fakeNpc = seenNPCs.get(npcIndex);
+				fakeNpc.lerpToAndHide(eventNpc.getNpc());
+			}
+			else
+			{
+				for (FakeNPC staticFakeNPC : staticNPCs.values())
 				{
-					System.out.printf("Found match with static npc - %s\n", staticFakeNPC.getComposition().getName());
-					seenNPCs.put(npcIndex, staticFakeNPC);
-					staticFakeNPC.lerpToAndHide(eventNpc.getNpc());
-					break;
+					if (npcMatch(staticFakeNPC, eventNpc.getNpc()))
+					{
+						System.out.printf("Found match with static npc - %s\n", staticFakeNPC.getComposition().getName());
+						seenNPCs.put(npcIndex, staticFakeNPC);
+						staticFakeNPC.lerpToAndHide(eventNpc.getNpc());
+						break;
+					}
 				}
 			}
-		}
+		});
 	}
 
 	private boolean npcMatch(FakeNPC fake, NPC real)
