@@ -136,6 +136,7 @@ public class ExtendedNPCsPlugin extends Plugin
 	protected void startUp() throws Exception
 	{
 		hooks.registerRenderableDrawListener(drawListener);
+		clientThread.invokeLater(this::onAreaLoaded);
 	}
 
 	@Override
@@ -166,7 +167,7 @@ public class ExtendedNPCsPlugin extends Plugin
 		if (gameStateChanged.getGameState() == GameState.LOGGED_IN)
 		{
 			//Respawn all the visible fake npcs after map loading
-			for (Iterator<Map.Entry<NPCSpawnDefinition, FakeNPC>> iterator = staticNPCs.entrySet().iterator(); iterator.hasNext();)
+			for (Iterator<Map.Entry<NPCSpawnDefinition, FakeNPC>> iterator = staticNPCs.entrySet().iterator(); iterator.hasNext(); )
 			{
 				FakeNPC fakeNPC = iterator.next().getValue();
 				if (fakeNPC.isInScene())
@@ -177,11 +178,12 @@ public class ExtendedNPCsPlugin extends Plugin
 				{
 					fakeNPC.shutDown();
 					iterator.remove();
+					seenNPCs.remove(fakeNPC.getNpcIndex());
 					walking.remove(fakeNPC);
 					//TODO cleanup other lists
 				}
 			}
-			for (Iterator<FakeNPC> iterator = dynamicNPCs.iterator(); iterator.hasNext();)
+			for (Iterator<FakeNPC> iterator = dynamicNPCs.iterator(); iterator.hasNext(); )
 			{
 				FakeNPC fakeNPC = iterator.next();
 				if (fakeNPC.isInScene())
@@ -192,48 +194,76 @@ public class ExtendedNPCsPlugin extends Plugin
 				{
 					fakeNPC.shutDown();
 					iterator.remove();
+					seenNPCs.remove(fakeNPC.getNpcIndex());
 					walking.remove(fakeNPC);
 					//TODO cleanup other lists
 				}
 			}
+			this.onAreaLoaded();
+		}
+	}
 
-			int[] loadedRegions = client.getMapRegions();
-			for (int regionId : loadedRegions)
+	private void onAreaLoaded()
+	{
+		int[] loadedRegions = client.getMapRegions();
+		for (int regionId : loadedRegions)
+		{
+			Collection<NPCSpawnDefinition> regionSpawns = SPAWNS.get(regionId);
+			for (NPCSpawnDefinition def : regionSpawns)
 			{
-				Collection<NPCSpawnDefinition> regionSpawns = SPAWNS.get(regionId);
-				for (NPCSpawnDefinition def : regionSpawns)
+				if (WorldPoint.isInScene(client, def.getX(), def.getY()) && def.getLevel() == client.getPlane())
 				{
-					if (WorldPoint.isInScene(client, def.getX(), def.getY()) && def.getLevel() == client.getPlane())
+					FakeNPC fakeNPC = null;
+					if (staticNPCs.containsKey(def))
 					{
-						FakeNPC fakeNPC = null;
-						if (staticNPCs.containsKey(def))
+						fakeNPC = staticNPCs.get(def);
+					}
+					else
+					{
+						for (FakeNPC dynamic : dynamicNPCs)
 						{
-							fakeNPC = staticNPCs.get(def);
-						}
-						else
-						{
-							for (FakeNPC dynamic : dynamicNPCs)
+							if (fakeNpcMatch(dynamic, def))
 							{
-								if (fakeNpcMatch(dynamic, def))
-								{
-									fakeNPC = dynamic;
-									break;
-								}
+								fakeNPC = dynamic;
+								break;
 							}
 						}
-						if (fakeNPC == null)
+					}
+					if (fakeNPC == null)
+					{
+						//Check already spawned real npcs for a match
+						for (NPC existingNPC : client.getNpcs())
 						{
-							fakeNPC = new FakeNPC(this, client, def);
-							staticNPCs.put(def, fakeNPC);
-							System.out.printf("New static npc: %s\n", def.getName());
+							if (npcMatch(def, existingNPC))
+							{
+								int npcIndex = existingNPC.getIndex();
+								if (seenNPCs.containsKey(npcIndex))
+								{
+									fakeNPC = seenNPCs.get(npcIndex);
+								}
+								else
+								{
+									fakeNPC = new FakeNPC(this, client, existingNPC);
+								}
+								staticNPCs.put(def, fakeNPC);
+								seenNPCs.put(npcIndex, fakeNPC);
+								fakeNPC.lerpToAndHide(existingNPC);
+								System.out.printf("Linked new hidden static npc: %s\n", def.getName());
+							}
 						}
+					}
+					if (fakeNPC == null)
+					{
+						fakeNPC = new FakeNPC(this, client, def);
+						staticNPCs.put(def, fakeNPC);
+						System.out.printf("New static npc: %s\n", def.getName());
 						fakeNPC.jumpToAndShow(def);
 					}
 				}
 			}
 		}
+		System.out.print("\n");
 	}
-
 
 	@Subscribe
 	public void onNpcDespawned(NpcDespawned eventNpc)
@@ -277,30 +307,28 @@ public class ExtendedNPCsPlugin extends Plugin
 	@Subscribe
 	public void onNpcSpawned(NpcSpawned eventNpc)
 	{
-		clientThread.invokeAtTickEnd(()->
+		System.out.printf("Spawn: %s - ", eventNpc.getNpc().getName());
+		int npcIndex = eventNpc.getNpc().getIndex();
+		if (seenNPCs.containsKey(npcIndex))
 		{
-			System.out.printf("Spawn: %s - ", eventNpc.getNpc().getName());
-			int npcIndex = eventNpc.getNpc().getIndex();
-			if (seenNPCs.containsKey(npcIndex))
+			System.out.printf("Already seen at index: %d", npcIndex);
+			FakeNPC fakeNpc = seenNPCs.get(npcIndex);
+			fakeNpc.lerpToAndHide(eventNpc.getNpc());
+		}
+		else
+		{
+			for (FakeNPC staticFakeNPC : staticNPCs.values())
 			{
-				System.out.printf("Already seen at index: %d\n", npcIndex);
-				FakeNPC fakeNpc = seenNPCs.get(npcIndex);
-				fakeNpc.lerpToAndHide(eventNpc.getNpc());
-			}
-			else
-			{
-				for (FakeNPC staticFakeNPC : staticNPCs.values())
+				if (npcMatch(staticFakeNPC, eventNpc.getNpc()))
 				{
-					if (npcMatch(staticFakeNPC, eventNpc.getNpc()))
-					{
-						System.out.printf("Found match with static npc - %s\n", staticFakeNPC.getComposition().getName());
-						seenNPCs.put(npcIndex, staticFakeNPC);
-						staticFakeNPC.lerpToAndHide(eventNpc.getNpc());
-						break;
-					}
+					System.out.printf("Found match with static npc - %s", staticFakeNPC.getComposition().getName());
+					seenNPCs.put(npcIndex, staticFakeNPC);
+					staticFakeNPC.lerpToAndHide(eventNpc.getNpc());
+					break;
 				}
 			}
-		});
+		}
+		System.out.print("\n");
 	}
 
 	private boolean npcMatch(FakeNPC fake, NPC real)
@@ -312,6 +340,15 @@ public class ExtendedNPCsPlugin extends Plugin
 				|| (fake.getComposition().getId() == real.getId())
 				|| (fake.getComposition().getName().equals(real.getName()))))
 		)
+		{
+			return true;
+		}
+		return false;
+	}
+
+	private boolean npcMatch(NPCSpawnDefinition fake, NPC real)
+	{
+		if (fake.getId() == real.getId())
 		{
 			return true;
 		}

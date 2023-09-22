@@ -56,6 +56,7 @@ public class FakeNPC
 		this.client = client;
 		this.plugin = plugin;
 		composition = client.getNpcDefinition(spawnDefinition.getId());
+		orientation = (int) (Math.random() * 2047); //2047 is maximum orientation units used by jagex
 		copyNPC(true);
 	}
 
@@ -164,6 +165,7 @@ public class FakeNPC
 		this.realNPC = spawnedNPC;
 		//Skip lerping if distance between is too great
 		//TODO config option for this between skip lerp/run
+		this.curLocationWorldPoint = WorldPoint.fromLocal(client, rlobj.getLocation());
 		if (curLocationWorldPoint.distanceTo(spawnedNPC.getWorldLocation()) > 10)
 		{
 			this.setLocation(spawnedNPC.getLocalLocation());
