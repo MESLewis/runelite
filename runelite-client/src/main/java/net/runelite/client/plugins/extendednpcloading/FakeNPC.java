@@ -36,6 +36,7 @@ public class FakeNPC
 	private NPCComposition composition;
 	@Getter
 	private RuneLiteObject rlobj;
+	private WorldPoint spawnWorldPoint;
 	//Saved as we go because the scene can become null at any time
 	private WorldPoint curLocationWorldPoint;
 	private NPC realNPC = null;
@@ -191,6 +192,7 @@ public class FakeNPC
 		extractNPCData(despawnedNPC);
 		this.realNPC = null;
 		this.setLocation(despawnedNPC.getLocalLocation());
+		this.spawnWorldPoint = despawnedNPC.getWorldLocation();
 		if (idlePoseAnimation >= 0)
 		{
 			rlobj.setAnimation(client.loadAnimation(idlePoseAnimation));
@@ -212,6 +214,7 @@ public class FakeNPC
 		}
 		//TODO deal with other z planes
 		this.setLocation(localPoint);
+		this.spawnWorldPoint = new WorldPoint(spawnDef.getX(), spawnDef.getY(), spawnDef.getLevel());
 		if (idlePoseAnimation >= 0)
 		{
 			rlobj.setAnimation(client.loadAnimation(idlePoseAnimation));
@@ -293,6 +296,11 @@ public class FakeNPC
 	 */
 	public void processGameTick()
 	{
+		//If we are walking too far away from our original location just stop showing
+		if (spawnWorldPoint != null && this.realNPC == null && spawnWorldPoint.distanceTo(curLocationWorldPoint) > 5)
+		{
+			this.rlobj.setActive(false);
+		}
 		//Check every tick because the npc spawned events are weird on map load
 		if (this.npcIndex >= 0)
 		{
