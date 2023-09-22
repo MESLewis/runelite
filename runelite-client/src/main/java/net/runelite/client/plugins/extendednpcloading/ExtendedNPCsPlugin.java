@@ -206,6 +206,7 @@ public class ExtendedNPCsPlugin extends Plugin
 	private void onAreaLoaded()
 	{
 		int[] loadedRegions = client.getMapRegions();
+		List<NPC> realNPCs = client.getNpcs();
 		for (int regionId : loadedRegions)
 		{
 			Collection<NPCSpawnDefinition> regionSpawns = SPAWNS.get(regionId);
@@ -232,8 +233,9 @@ public class ExtendedNPCsPlugin extends Plugin
 					if (fakeNPC == null)
 					{
 						//Check already spawned real npcs for a match
-						for (NPC existingNPC : client.getNpcs())
+						for (Iterator<NPC> iterator = realNPCs.listIterator(); iterator.hasNext();)
 						{
+							NPC existingNPC = iterator.next();
 							if (npcMatch(def, existingNPC))
 							{
 								int npcIndex = existingNPC.getIndex();
@@ -249,6 +251,8 @@ public class ExtendedNPCsPlugin extends Plugin
 								seenNPCs.put(npcIndex, fakeNPC);
 								fakeNPC.lerpToAndHide(existingNPC);
 								System.out.printf("Linked new hidden static npc: %s\n", def.getName());
+								iterator.remove(); //Remove the NPC we just claimed
+								break;
 							}
 						}
 					}
