@@ -425,7 +425,8 @@ public class ExtendedNPCsPlugin extends Plugin
 	{
 		boolean isOverWorld = WorldPoint.getMirrorPoint(client.getLocalPlayer().getWorldLocation(), true).getY() < Constants.OVERWORLD_MAX_Y;
 		boolean isWhitelistedRegion = ExtendedNPCsConstants.WHITELISTED_REGIONS.contains( WorldPoint.fromLocalInstance(client, client.getLocalPlayer().getLocalLocation()).getRegionID());
-		return  (isOverWorld || isWhitelistedRegion);
+		boolean isInstance = client.isInInstancedRegion();
+		return  (isOverWorld || isWhitelistedRegion || !isInstance);
 	}
 
 	@Provides
