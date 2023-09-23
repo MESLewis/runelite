@@ -1,9 +1,9 @@
 package net.runelite.client.plugins.extendednpcloading;
 
-import net.runelite.api.Client;
 import java.awt.Shape;
 import lombok.Getter;
 import net.runelite.api.ChatMessageType;
+import net.runelite.api.Client;
 import net.runelite.api.MenuEntry;
 import net.runelite.api.Model;
 import net.runelite.api.ModelData;
@@ -12,6 +12,7 @@ import net.runelite.api.NPCComposition;
 import net.runelite.api.Perspective;
 import net.runelite.api.Point;
 import net.runelite.api.RuneLiteObject;
+import net.runelite.api.Tile;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
 
@@ -58,6 +59,9 @@ public class FakeNPC
 		this.plugin = plugin;
 		composition = client.getNpcDefinition(spawnDefinition.getId());
 		orientation = (int) (Math.random() * 2047); //2047 is maximum orientation units used by jagex
+		curLocationWorldPoint = new WorldPoint(spawnDefinition.getX(), spawnDefinition.getY(), spawnDefinition.getLevel());
+		idlePoseAnimation = composition.getIdlePoseAnimation();
+		walkAnimation = composition.getIdlePoseAnimation();
 		copyNPC(true);
 	}
 
@@ -87,8 +91,7 @@ public class FakeNPC
 		{
 			return;
 		}
-		//TODO doesn't work for extended scene
-		LocalPoint newLocal = LocalPoint.fromWorld(client, curLocationWorldPoint);
+		LocalPoint newLocal = LocalPoint.fromScene(curLocationWorldPoint.getX() - client.getBaseX(), curLocationWorldPoint.getY() - client.getBaseY());
 		if (newLocal != null)
 		{
 			this.realNPC = this.npcIndex >= 0 ? client.getCachedNPCs()[this.npcIndex] : null;
@@ -147,6 +150,28 @@ public class FakeNPC
 		}
 
 		Model model = mData.light();
+		// If the npc is not within the base scene but still in the loaded region it's an extended region npc.
+		if (curLocationWorldPoint != null && !curLocationWorldPoint.isInScene(client))
+		{
+			LocalPoint newLocal = LocalPoint.fromScene(curLocationWorldPoint.getX() - client.getBaseX(), curLocationWorldPoint.getY() - client.getBaseY());
+			int posX = (client.getExpandedMapLoading() * 8) + newLocal.getX() / 128;
+			int posY = (client.getExpandedMapLoading() * 8) + newLocal.getY() / 128;
+			if (posX >= 0 && posX < 184 && posY >= 0 && posY < 184)
+			{
+				Tile bridge = client.getScene().getExtendedTiles()[curLocationWorldPoint.getPlane()][posX][posY].getBridge();
+				if (bridge != null)
+				{
+					// This npc is on a bridge so we move it up 1 plane
+					// TODO doesnt seem to work with an extended map loading of < 5
+					model.translate(0, client.getScene().getTileHeights()[client.getPlane()+1][posX][posY], 0);
+				}
+				else
+				{
+					model.translate(0, client.getScene().getTileHeights()[curLocationWorldPoint.getPlane()][40 + newLocal.getX() / 128][40 + newLocal.getY() / 128], 0);
+				}
+			}
+		}
+
 		rlobj.setModel(model);
 
 		int animation = idlePoseAnimation;
@@ -207,7 +232,7 @@ public class FakeNPC
 	{
 		this.realNPC = null;
 		this.composition = client.getNpcDefinition(spawnDef.getId());
-		LocalPoint localPoint = LocalPoint.fromWorld(client, spawnDef.getX(), spawnDef.getY());
+		LocalPoint localPoint = LocalPoint.fromScene(spawnDef.getX() - client.getBaseX(), spawnDef.getY() - client.getBaseY());
 		if (localPoint == null)
 		{
 			return;

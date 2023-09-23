@@ -1,6 +1,5 @@
 package net.runelite.client.plugins.extendednpcloading;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import com.google.inject.Provides;
@@ -183,14 +182,20 @@ public class ExtendedNPCsPlugin extends Plugin
 		{
 			return;
 		}
-		int[] loadedRegions = client.getMapRegions();
+		int[] loadedRegions = getExpandedRegions();
 		List<NPC> realNPCs = client.getNpcs();
 		for (int regionId : loadedRegions)
 		{
 			Collection<NPCSpawnDefinition> regionSpawns = SPAWNS.get(regionId);
+			if(regionSpawns == null)
+			{
+				continue;
+			}
+
 			for (NPCSpawnDefinition def : regionSpawns)
 			{
-				if (WorldPoint.isInScene(client, def.getX(), def.getY()) && def.getLevel() == client.getPlane())
+				//TODO might need an inScene check again but for expanded scenes
+				if (def.getLevel() == client.getPlane())
 				{
 					FakeNPC fakeNPC = null;
 					if (staticNPCs.containsKey(def))
@@ -427,6 +432,23 @@ public class ExtendedNPCsPlugin extends Plugin
 		boolean isWhitelistedRegion = ExtendedNPCsConstants.WHITELISTED_REGIONS.contains( WorldPoint.fromLocalInstance(client, client.getLocalPlayer().getLocalLocation()).getRegionID());
 		boolean isInstance = client.isInInstancedRegion();
 		return  (isOverWorld || isWhitelistedRegion || !isInstance);
+	}
+
+	private int[] getExpandedRegions()
+	{
+		//TODO potentially replace this by exposing all the loaded regions?
+		ArrayList<Integer> regions = new ArrayList<Integer>();
+		for(int x = 0; x < Constants.EXTENDED_SCENE_SIZE; x++) {
+			for (int y = 0; y < Constants.EXTENDED_SCENE_SIZE; y++)
+			{
+				int region = client.getScene().getExtendedTiles()[0][x][y].getWorldLocation().getRegionID();
+				if(!regions.contains(region))
+				{
+					regions.add(region);
+				}
+			}
+		}
+		return regions.stream().mapToInt(Integer::intValue).toArray();
 	}
 
 	@Provides
