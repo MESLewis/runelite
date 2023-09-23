@@ -187,6 +187,11 @@ public class ExtendedNPCsPlugin extends Plugin
 		for (int regionId : loadedRegions)
 		{
 			Collection<NPCSpawnDefinition> regionSpawns = SPAWNS.get(regionId);
+			if(regionSpawns == null)
+			{
+				continue;
+			}
+
 			for (NPCSpawnDefinition def : regionSpawns)
 			{
 				//TODO might need an inScene check again but for expanded scenes
