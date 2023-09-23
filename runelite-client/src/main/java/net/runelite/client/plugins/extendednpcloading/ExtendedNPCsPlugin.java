@@ -178,7 +178,7 @@ public class ExtendedNPCsPlugin extends Plugin
 
 	private void onAreaLoaded()
 	{
-		if(!isAllowedRegion())
+		if (!isAllowedRegion())
 		{
 			return;
 		}
@@ -187,7 +187,7 @@ public class ExtendedNPCsPlugin extends Plugin
 		for (int regionId : loadedRegions)
 		{
 			Collection<NPCSpawnDefinition> regionSpawns = SPAWNS.get(regionId);
-			if(regionSpawns == null)
+			if (regionSpawns == null)
 			{
 				continue;
 			}
@@ -437,12 +437,13 @@ public class ExtendedNPCsPlugin extends Plugin
 	private int[] getExpandedRegions()
 	{
 		//TODO potentially replace this by exposing all the loaded regions?
-		ArrayList<Integer> regions = new ArrayList<Integer>();
-		for(int x = 0; x < Constants.EXTENDED_SCENE_SIZE; x++) {
+		ArrayList<Integer> regions = new ArrayList<>();
+		for (int x = 0; x < Constants.EXTENDED_SCENE_SIZE; x++)
+		{
 			for (int y = 0; y < Constants.EXTENDED_SCENE_SIZE; y++)
 			{
 				int region = client.getScene().getExtendedTiles()[0][x][y].getWorldLocation().getRegionID();
-				if(!regions.contains(region))
+				if (!regions.contains(region))
 				{
 					regions.add(region);
 				}

@@ -163,7 +163,7 @@ public class FakeNPC
 				{
 					// This npc is on a bridge so we move it up 1 plane
 					// TODO doesnt seem to work with an extended map loading of < 5
-					model.translate(0, client.getScene().getTileHeights()[client.getPlane()+1][posX][posY], 0);
+					model.translate(0, client.getScene().getTileHeights()[client.getPlane() + 1][posX][posY], 0);
 				}
 				else
 				{
