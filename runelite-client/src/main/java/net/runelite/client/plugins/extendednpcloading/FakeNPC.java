@@ -57,6 +57,8 @@ public class FakeNPC
 		this.plugin = plugin;
 		composition = client.getNpcDefinition(spawnDefinition.getId());
 		orientation = (int) (Math.random() * 2047); //2047 is maximum orientation units used by jagex
+		idlePoseAnimation = composition.getIdlePoseAnimation();
+		walkAnimation = composition.getIdlePoseAnimation();
 		copyNPC(true);
 	}
 
