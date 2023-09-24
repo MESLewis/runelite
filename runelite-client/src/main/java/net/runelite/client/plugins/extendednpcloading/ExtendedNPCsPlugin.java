@@ -194,6 +194,7 @@ public class ExtendedNPCsPlugin extends Plugin
 
 			for (NPCSpawnDefinition def : regionSpawns)
 			{
+				//TODO add transformedcomposition name null check for definition, avoids having static npc's that aren't there due to quest progress
 				//TODO might need an inScene check again but for expanded scenes
 				if (def.getLevel() == client.getPlane())
 				{
@@ -244,7 +245,6 @@ public class ExtendedNPCsPlugin extends Plugin
 						fakeNPC = new FakeNPC(this, client, def);
 						staticNPCs.put(def, fakeNPC);
 						System.out.printf("New static npc: %s\n", def.getName());
-						fakeNPC.jumpToAndShow(def);
 					}
 				}
 			}
@@ -259,7 +259,7 @@ public class ExtendedNPCsPlugin extends Plugin
 		NPC npc = eventNpc.getNpc();
 		int npcIndex = eventNpc.getNpc().getIndex();
 
-		if (npc.isDead() || npc.getComposition().getName().toLowerCase().equals("null") || npc.getComposition().isFollower() || ExtendedNPCsConstants.IGNORED_NPCS.contains(npc.getId()) || !isAllowedRegion())
+		if (npc.isDead() || npc.getTransformedComposition().getName().toLowerCase().equals("null") || npc.getComposition().isFollower() || ExtendedNPCsConstants.IGNORED_NPCS.contains(npc.getId()) || !isAllowedRegion())
 		{
 			return;
 		}
@@ -428,6 +428,7 @@ public class ExtendedNPCsPlugin extends Plugin
 
 	private boolean isAllowedRegion()
 	{
+		//TODO null check getLocalPlayer()
 		boolean isOverWorld = WorldPoint.getMirrorPoint(client.getLocalPlayer().getWorldLocation(), true).getY() < Constants.OVERWORLD_MAX_Y;
 		boolean isWhitelistedRegion = ExtendedNPCsConstants.WHITELISTED_REGIONS.contains( WorldPoint.fromLocalInstance(client, client.getLocalPlayer().getLocalLocation()).getRegionID());
 		boolean isInstance = client.isInInstancedRegion();

@@ -2,6 +2,7 @@ package net.runelite.client.plugins.extendednpcloading;
 
 import java.awt.Shape;
 import lombok.Getter;
+import net.runelite.api.Animation;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.MenuEntry;
@@ -18,16 +19,14 @@ import net.runelite.api.coords.WorldPoint;
 
 /**
  * Max distance between a real NPC and the player is 15 tiles.
- *
- * TODO explicit modes/status. Do we know the NPC index? Do we have a realNPC?
- * TODO Are we walking to a realNPC?
  */
 public class FakeNPC
 {
 	private Client client;
 	private ExtendedNPCsPlugin plugin;
-	private int idlePoseAnimation = -1;
-	private int walkAnimation = 1;
+	private FakeNPCMode mode = FakeNPCMode.IDLE;
+	private Animation idlePoseAnimation = null;
+	private Animation walkAnimation = null;
 	private int orientation = 0;
 	@Getter
 	private int npcIndex = -1;
@@ -43,6 +42,7 @@ public class FakeNPC
 	private NPC realNPC = null;
 	private LocalPoint walkingDestination;
 	private String EXAMINE_TEXT = "Totally real npc";
+	private Model cachedModel = null;
 
 	public FakeNPC(ExtendedNPCsPlugin plugin, Client client, NPC npc)
 	{
@@ -60,9 +60,14 @@ public class FakeNPC
 		composition = client.getNpcDefinition(spawnDefinition.getId());
 		orientation = (int) (Math.random() * 2047); //2047 is maximum orientation units used by jagex
 		curLocationWorldPoint = new WorldPoint(spawnDefinition.getX(), spawnDefinition.getY(), spawnDefinition.getLevel());
-		idlePoseAnimation = composition.getIdlePoseAnimation();
-		walkAnimation = composition.getIdlePoseAnimation();
+		idlePoseAnimation = client.loadAnimation(composition.getIdlePoseAnimation());
+		walkAnimation = client.loadAnimation(composition.getWalkAnimation());
+		isAttackable = composition.getCombatLevel() > 0;
 		copyNPC(true);
+		LocalPoint localPoint = LocalPoint.fromScene(spawnDefinition.getX() - client.getBaseX(), spawnDefinition.getY() - client.getBaseY());
+		//TODO deal with other z planes
+		this.setLocation(localPoint);
+		this.spawnWorldPoint = new WorldPoint(spawnDefinition.getX(), spawnDefinition.getY(), spawnDefinition.getLevel());
 	}
 
 	/**
@@ -74,8 +79,8 @@ public class FakeNPC
 	{
 		npcIndex = npc.getIndex();
 		composition = npc.getTransformedComposition();
-		idlePoseAnimation = npc.getIdlePoseAnimation();
-		walkAnimation = npc.getWalkAnimation();
+		idlePoseAnimation = client.loadAnimation(npc.getIdlePoseAnimation());
+		walkAnimation = client.loadAnimation(npc.getWalkAnimation());
 		orientation = npc.getOrientation();
 		isAttackable = npc.getCombatLevel() > 0;
 	}
@@ -85,71 +90,69 @@ public class FakeNPC
 		return curLocationWorldPoint.isInScene(client);
 	}
 
+	/**
+	 * Create a new RuneLiteObject to represent this FakeNPC in the new scene
+	 */
 	public void recreate()
 	{
-		if (curLocationWorldPoint == null)
-		{
-			return;
-		}
 		LocalPoint newLocal = LocalPoint.fromScene(curLocationWorldPoint.getX() - client.getBaseX(), curLocationWorldPoint.getY() - client.getBaseY());
-		if (newLocal != null)
-		{
-			this.realNPC = this.npcIndex >= 0 ? client.getCachedNPCs()[this.npcIndex] : null;
-			copyNPC(rlobj.isActive());
-			this.setLocation(newLocal);
-		}
+		//TODO new inScene check
+		this.realNPC = this.npcIndex >= 0 ? client.getCachedNPCs()[this.npcIndex] : null;
+		copyNPC(rlobj.isActive());
+		this.setLocation(newLocal);
 	}
 
 	private void copyNPC(boolean active)
 	{
-		if (rlobj != null)
-		{
-			rlobj.setActive(false);
-		}
-
+		//We need to create a new runeliteobject every time but we can store the models etc
 		rlobj = client.createRuneLiteObject();
-		int[] modelIds = composition.getModels();
-		if (modelIds == null)
+		if (cachedModel == null)
 		{
-			return;
-		}
-		ModelData[] mDatas = new ModelData[modelIds.length];
-		for (int i = 0; i < modelIds.length; i++)
-		{
-			mDatas[i] = client.loadModelData(modelIds[i]);
-		}
-		ModelData mData = client.mergeModels(mDatas);
-
-		short[] colorsToReplace = composition.getColorToReplace();
-		short[] colorsToReplaceWith = composition.getColorToReplaceWith();
-		if (colorsToReplace != null && colorsToReplaceWith != null)
-		{
-			mData.cloneColors();
-			for (int i = 0; i < colorsToReplace.length; i++)
+			int[] modelIds = composition.getModels();
+			if (modelIds == null)
 			{
-				mData = mData.recolor(colorsToReplace[i], colorsToReplaceWith[i]);
+				return;
 			}
-		}
-		//desaturate attackable npcs
-		if (isAttackable)
-		{
-			mData.cloneColors();
-			for (int i = 0; i < mData.getFaceColors().length; i++)
+			ModelData[] mDatas = new ModelData[modelIds.length];
+			for (int i = 0; i < modelIds.length; i++)
 			{
-				// The game uses bitpacked HSL where bit 8-10 control the saturation(HHHHHHSSSLLLLLLL)
-				// 64639 is bitmask 1111110001111111 which will completely desaturate a color
-				// 65023 is bitmask 1111110111111111 which will ~half desaturate a color
-				mData.recolor(mData.getFaceColors()[i], (short) (mData.getFaceColors()[i] & 65023));
+				mDatas[i] = client.loadModelData(modelIds[i]);
 			}
+			ModelData mData = client.mergeModels(mDatas);
+
+			short[] colorsToReplace = composition.getColorToReplace();
+			short[] colorsToReplaceWith = composition.getColorToReplaceWith();
+			if (colorsToReplace != null && colorsToReplaceWith != null)
+			{
+				mData.cloneColors();
+				for (int i = 0; i < colorsToReplace.length; i++)
+				{
+					mData = mData.recolor(colorsToReplace[i], colorsToReplaceWith[i]);
+				}
+			}
+			//desaturate attackable npcs
+			if (isAttackable)
+			{
+				mData.cloneColors();
+				for (int i = 0; i < mData.getFaceColors().length; i++)
+				{
+					// The game uses bitpacked HSL where bit 8-10 control the saturation(HHHHHHSSSLLLLLLL)
+					// 64639 is bitmask 1111110001111111 which will completely desaturate a color
+					// 65023 is bitmask 1111110111111111 which will ~half desaturate a color
+					mData.recolor(mData.getFaceColors()[i], (short) (mData.getFaceColors()[i] & 65023));
+				}
+			}
+
+			if (composition.getWidthScale() != 128 || composition.getHeightScale() != 128)
+			{
+				mData.cloneVertices();
+				mData.scale(composition.getWidthScale(), composition.getHeightScale(), composition.getWidthScale());
+			}
+			//TODO something is a little off with lighting
+			cachedModel = mData.light();
 		}
 
-		if (composition.getWidthScale() != 128 || composition.getHeightScale() != 128)
-		{
-			mData.cloneVertices();
-			mData.scale(composition.getWidthScale(), composition.getHeightScale(), composition.getWidthScale());
-		}
-
-		Model model = mData.light();
+		// TODO I think the cached model is going to make this go too high up?
 		// If the npc is not within the base scene but still in the loaded region it's an extended region npc.
 		if (curLocationWorldPoint != null && !curLocationWorldPoint.isInScene(client))
 		{
@@ -163,28 +166,28 @@ public class FakeNPC
 				{
 					// This npc is on a bridge so we move it up 1 plane
 					// TODO doesnt seem to work with an extended map loading of < 5
-					model.translate(0, client.getScene().getTileHeights()[client.getPlane() + 1][posX][posY], 0);
+					cachedModel.translate(0, client.getScene().getTileHeights()[client.getPlane() + 1][posX][posY], 0);
 				}
 				else
 				{
-					model.translate(0, client.getScene().getTileHeights()[curLocationWorldPoint.getPlane()][40 + newLocal.getX() / 128][40 + newLocal.getY() / 128], 0);
+					cachedModel.translate(0, client.getScene().getTileHeights()[curLocationWorldPoint.getPlane()][40 + newLocal.getX() / 128][40 + newLocal.getY() / 128], 0);
 				}
 			}
 		}
 
-		rlobj.setModel(model);
-
-		int animation = idlePoseAnimation;
-		if (animation >= 0)
-		{
-			rlobj.setAnimation(client.loadAnimation(animation));
-			rlobj.setShouldLoop(true);
-		}
-		//TODO I think we need to use the rotate before lighting sometimes
+		rlobj.setModel(cachedModel);
 		rlobj.setOrientation(orientation);
-		rlobj.setActive(active);
+
+		FakeNPCMode oldMode = mode;
+		//Set to hidden so that we can reset to what we were before and have everything work right
+		setMode(FakeNPCMode.HIDDEN);
+		setMode(oldMode);
 	}
 
+	/**
+	 * When the real NPC spawns we want to set our movement goal to the real position.
+	 * @param spawnedNPC
+	 */
 	public void lerpToAndHide(NPC spawnedNPC)
 	{
 		extractNPCData(spawnedNPC);
@@ -194,9 +197,7 @@ public class FakeNPC
 		this.curLocationWorldPoint = WorldPoint.fromLocal(client, rlobj.getLocation());
 		if (curLocationWorldPoint.distanceTo(spawnedNPC.getWorldLocation()) > 10)
 		{
-			this.setLocation(spawnedNPC.getLocalLocation());
-			this.rlobj.setOrientation(spawnedNPC.getOrientation());
-			this.rlobj.setActive(false);
+			setMode(FakeNPCMode.HIDDEN);
 			return;
 		}
 		//TODO config option for this between skip lerp/run
@@ -204,50 +205,26 @@ public class FakeNPC
 		{
 			this.shouldRun = true;
 		}
-		if (walkAnimation >= 0)
-		{
-			rlobj.setAnimation(client.loadAnimation(walkAnimation));
-			rlobj.setShouldLoop(true);
-		}
-		plugin.addWalking(this);
+		setMode(FakeNPCMode.LERP_TO_REAL);
 	}
 
+	/**
+	 * When a real NPC despawns, we jump to their position and show ourselves
+	 * @param despawnedNPC
+	 */
 	public void jumpToAndShow(NPC despawnedNPC)
 	{
 		extractNPCData(despawnedNPC);
 		this.realNPC = null;
 		this.setLocation(despawnedNPC.getLocalLocation());
 		this.spawnWorldPoint = despawnedNPC.getWorldLocation();
-		if (idlePoseAnimation >= 0)
-		{
-			rlobj.setAnimation(client.loadAnimation(idlePoseAnimation));
-			rlobj.setShouldLoop(true);
-		}
 		rlobj.setOrientation(despawnedNPC.getOrientation());
-		rlobj.setActive(true);
+		setMode(FakeNPCMode.IDLE);
 	}
 
-	//TODO clean up logic here, do we just always want to call this from constructor?
-	public void jumpToAndShow(NPCSpawnDefinition spawnDef)
-	{
-		this.realNPC = null;
-		this.composition = client.getNpcDefinition(spawnDef.getId());
-		LocalPoint localPoint = LocalPoint.fromScene(spawnDef.getX() - client.getBaseX(), spawnDef.getY() - client.getBaseY());
-		if (localPoint == null)
-		{
-			return;
-		}
-		//TODO deal with other z planes
-		this.setLocation(localPoint);
-		this.spawnWorldPoint = new WorldPoint(spawnDef.getX(), spawnDef.getY(), spawnDef.getLevel());
-		if (idlePoseAnimation >= 0)
-		{
-			rlobj.setAnimation(client.loadAnimation(idlePoseAnimation));
-			rlobj.setShouldLoop(true);
-		}
-		rlobj.setActive(true);
-	}
-
+	/**
+	 * Called on plugin shut down or when this is no longer in scene
+	 */
 	public void shutDown()
 	{
 		this.rlobj.setActive(false);
@@ -259,9 +236,17 @@ public class FakeNPC
 	 */
 	public void processClientTick()
 	{
+		//If we have a realNPC, walk to them
 		if (realNPC != null)
 		{
 			walkingDestination = realNPC.getLocalLocation();
+			setMode(FakeNPCMode.LERP_TO_REAL);
+		}
+		//We don't have anywhere to walk to
+		if (walkingDestination == null)
+		{
+			setMode(FakeNPCMode.IDLE);
+			return;
 		}
 		LocalPoint curLocation = rlobj.getLocation();
 
@@ -304,15 +289,17 @@ public class FakeNPC
 		int newOrientation = rlobj.getOrientation() + dorient;
 		rlobj.setOrientation(newOrientation);
 
-
 		if (rlobj.getLocation().distanceTo(walkingDestination) < 1
 			&& rlobj.getOrientation() == orientationDestination)
 		{
-			if (realNPC != null)
+			if (mode == FakeNPCMode.LERP_TO_REAL)
 			{
-				rlobj.setActive(false);
+				setMode(FakeNPCMode.HIDDEN);
 			}
-			plugin.removeWalking(this);
+			else
+			{
+				setMode(FakeNPCMode.IDLE);
+			}
 		}
 	}
 
@@ -322,16 +309,11 @@ public class FakeNPC
 	public void processGameTick()
 	{
 		//If we are walking too far away from our original location just stop showing
-		if (spawnWorldPoint != null && this.realNPC == null && spawnWorldPoint.distanceTo(curLocationWorldPoint) > 5)
+		if (spawnWorldPoint != null && spawnWorldPoint.distanceTo(curLocationWorldPoint) > 5 && mode == FakeNPCMode.AVOID_PLAYER)
 		{
-			this.rlobj.setActive(false);
+			setMode(FakeNPCMode.HIDDEN);
 		}
-		//Check every tick because the npc spawned events are weird on map load
-		if (this.npcIndex >= 0)
-		{
-			this.realNPC = client.getCachedNPCs()[this.npcIndex];
-		}
-		if (rlobj.isActive() && this.realNPC == null)
+		if (this.mode == FakeNPCMode.WANDER || this.mode == FakeNPCMode.IDLE || this.mode == FakeNPCMode.AVOID_PLAYER)
 		{
 			LocalPoint playerLocation = client.getLocalPlayer().getLocalLocation();
 			LocalPoint curLocation = rlobj.getLocation();
@@ -368,21 +350,8 @@ public class FakeNPC
 				}
 				int newX = curLocation.getX() + dx;
 				int newY = curLocation.getY() + dy;
-				//TODO if walking a total of X away from original location, just despawn
 				walkingDestination = new LocalPoint(newX, newY);
-				plugin.addWalking(this);
-			}
-		}
-		if (rlobj.isActive() && this.realNPC != null)
-		{
-			if (rlobj.getLocation().distanceTo(realNPC.getLocalLocation()) < 1)
-			{
-				rlobj.setActive(false);
-			}
-			else
-			{
-				walkingDestination = realNPC.getLocalLocation();
-				plugin.addWalking(this);
+				setMode(FakeNPCMode.AVOID_PLAYER);
 			}
 		}
 	}
@@ -405,7 +374,8 @@ public class FakeNPC
 
 	public void examine(MenuEntry menuEntry)
 	{
-		client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "Name: " + this.composition.getName() + " Index: " + this.npcIndex, null);
+		String message = String.format("Name: %s Index: %d Mode: %s IdleAnim: %d WalkAnim: %d", this.composition.getName(), this.npcIndex, this.mode, this.idlePoseAnimation.getId(), this.walkAnimation.getId());
+		client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, null);
 		if (this.realNPC != null)
 		{
 			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "RealNPC: " + this.realNPC.getName(), null);
@@ -421,5 +391,56 @@ public class FakeNPC
 	{
 		rlobj.setLocation(localPoint, client.getPlane());
 		curLocationWorldPoint = WorldPoint.fromLocal(client, localPoint);
+	}
+
+	/**
+	 * Handles housekeeping of switching modes
+	 * @param newMode
+	 */
+	private void setMode(FakeNPCMode newMode)
+	{
+		//No change, do nothing
+		if (newMode == mode)
+		{
+			return;
+		}
+
+		//If the current mode is hidden, the new one must not be hidden, so unhide.
+		if (mode == FakeNPCMode.HIDDEN)
+		{
+			rlobj.setActive(true);
+		}
+		if (newMode == FakeNPCMode.HIDDEN)
+		{
+			rlobj.setActive(false);
+		}
+		if (newMode == FakeNPCMode.IDLE)
+		{
+			if (idlePoseAnimation != null)
+			{
+				rlobj.setAnimation(idlePoseAnimation);
+				rlobj.setShouldLoop(true);
+			}
+		}
+		//If currently in any walking mode
+		if (mode == FakeNPCMode.WANDER || mode == FakeNPCMode.AVOID_PLAYER || mode == FakeNPCMode.LERP_TO_REAL)
+		{
+			//We were walking, now we are idle
+			if (newMode == FakeNPCMode.IDLE || newMode == FakeNPCMode.HIDDEN)
+			{
+				plugin.removeWalking(this);
+			}
+		}
+		//Else we weren't walking, check if we are now walking.
+		else if (newMode == FakeNPCMode.WANDER || newMode == FakeNPCMode.AVOID_PLAYER || newMode == FakeNPCMode.LERP_TO_REAL)
+		{
+			plugin.addWalking(this);
+			if (walkAnimation != null)
+			{
+				rlobj.setAnimation(walkAnimation);
+				rlobj.setShouldLoop(true);
+			}
+		}
+		this.mode = newMode;
 	}
 }
