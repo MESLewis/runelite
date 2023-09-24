@@ -236,6 +236,10 @@ public class FakeNPC
 	 */
 	public void processClientTick()
 	{
+		if (mode == FakeNPCMode.HIDDEN)
+		{
+			return;
+		}
 		//If we have a realNPC, walk to them
 		if (realNPC != null)
 		{
@@ -250,6 +254,7 @@ public class FakeNPC
 		}
 		LocalPoint curLocation = rlobj.getLocation();
 
+		//TODO speed based on mode
 		//Speed up the lerp by 2x if the distance is over 10 tiles
 		final int movementDelta = (int) (7 * (this.shouldRun ? 1.5 : 1));
 		int dx = Math.min(movementDelta, Math.abs(curLocation.getX() - walkingDestination.getX()));
@@ -262,10 +267,34 @@ public class FakeNPC
 		{
 			dy *= -1;
 		}
+		//Check that we aren't going inside a wall
+		//TODO canTravelInDirection doesn't like extended scene
+		LocalPoint lp = LocalPoint.fromWorld(client, curLocationWorldPoint.getX(), curLocationWorldPoint.getY());
+		if (curLocationWorldPoint.isInScene(client)
+			&& lp != null
+			&& lp.getSceneX() + dx > 0
+			&& lp.getSceneY() + dy > 0
+			&& lp.getSceneX() + dx < 103
+			&& lp.getSceneY() + dy < 103
+			&& curLocationWorldPoint.toWorldArea().canTravelInDirection(client, dx, dy))
+		{
+			int newX = curLocation.getX() + dx;
+			int newY = curLocation.getY() + dy;
+			this.setLocation(newX, newY);
+		}
+		else
+		{
+			this.walkingDestination = null;
+			if (mode == FakeNPCMode.AVOID_PLAYER || mode == FakeNPCMode.LERP_TO_REAL)
+			{
+				setMode(FakeNPCMode.HIDDEN);
+			}
+			else
+			{
+				setMode(FakeNPCMode.IDLE);
+			}
+		}
 
-		int newX = curLocation.getX() + dx;
-		int newY = curLocation.getY() + dy;
-		this.setLocation(newX, newY);
 
 		final int orientationDelta = 50;
 		int orientationDestination = rlobj.getOrientation();
@@ -289,7 +318,8 @@ public class FakeNPC
 		int newOrientation = rlobj.getOrientation() + dorient;
 		rlobj.setOrientation(newOrientation);
 
-		if (rlobj.getLocation().distanceTo(walkingDestination) < 1
+		if (walkingDestination != null
+			&& rlobj.getLocation().distanceTo(walkingDestination) < 1
 			&& rlobj.getOrientation() == orientationDestination)
 		{
 			if (mode == FakeNPCMode.LERP_TO_REAL)
@@ -352,6 +382,21 @@ public class FakeNPC
 				int newY = curLocation.getY() + dy;
 				walkingDestination = new LocalPoint(newX, newY);
 				setMode(FakeNPCMode.AVOID_PLAYER);
+			}
+		}
+		if (mode == FakeNPCMode.IDLE)
+		{
+			if (Math.random() * 6 < 1)
+			{
+				//TODO this will cause npcs displaced by AVOID_PLAYER to constantly try and path back to their spawn
+				//TODO is that a bad thing? idk
+				int dx = (int) ((Math.random() * 3) - 1.5) * 256;
+				int dy = (int) ((Math.random() * 3) - 1.5) * 256;
+				LocalPoint spawnLocation = LocalPoint.fromScene(spawnWorldPoint.getX() - client.getBaseX(), spawnWorldPoint.getY() - client.getBaseY());
+				int newX = spawnLocation.getX() + dx;
+				int newY = spawnLocation.getY() + dy;
+				walkingDestination = new LocalPoint(newX, newY);
+				setMode(FakeNPCMode.WANDER);
 			}
 		}
 	}
