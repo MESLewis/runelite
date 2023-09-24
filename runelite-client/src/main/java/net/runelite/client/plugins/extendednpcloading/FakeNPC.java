@@ -256,7 +256,11 @@ public class FakeNPC
 
 		//TODO speed based on mode
 		//Speed up the lerp by 2x if the distance is over 10 tiles
-		final int movementDelta = (int) (7 * (this.shouldRun ? 1.5 : 1));
+		int movementDelta = (int) (7 * (this.shouldRun ? 1.5 : 1));
+		if (mode == FakeNPCMode.WANDER)
+		{
+			movementDelta = 5;
+		}
 		int dx = Math.min(movementDelta, Math.abs(curLocation.getX() - walkingDestination.getX()));
 		int dy = Math.min(movementDelta, Math.abs(curLocation.getY() - walkingDestination.getY()));
 		if (curLocation.getX() > walkingDestination.getX())
@@ -310,6 +314,7 @@ public class FakeNPC
 			orientationDestination = (int) (angleDegrees * 2047d / 360d);
 		}
 
+		//TODO detect looping around from max rotation to 0 as a faster method
 		int dorient = Math.min(orientationDelta, Math.abs(rlobj.getOrientation() - orientationDestination));
 		if (rlobj.getOrientation() > orientationDestination)
 		{
